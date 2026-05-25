@@ -3,9 +3,10 @@
 A Progressive Web App for tracking daily meals, macros, and calories.
 Install it on your iPhone home screen for a native app experience.
 
+ 
 ## Features
 - 📷 Camera-based meal analysis powered by Claude AI
-- 🔥 Auto-calculated calories from macros
+- 🔥 Auto-calculated calories from macros 
 - ⚡ Quick-pick food library
 - 📅 30-day calendar history view
 - 📊 Export reports as Excel or PDF
