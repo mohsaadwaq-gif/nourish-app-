@@ -34,6 +34,10 @@ function formatDateLong(d) {
   const [y,m,day] = d.split("-");
   return new Date(y,m-1,day).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
 }
+function formatDateShort(d) {
+  const [y,m,day] = d.split("-");
+  return new Date(y,m-1,day).toLocaleDateString("en-US",{month:"short",day:"numeric"});
+}
 function getDayTotals(meals=[]) {
   return meals.reduce((a,m)=>({
     calories:a.calories+(Number(m.calories)||0),
@@ -100,46 +104,132 @@ function exportExcel(allData, dateRange) {
   XLSX.writeFile(wb,`nourish-report-${getTodayKey()}.xlsx`);
 }
 
-export default function App() {
-  const [allData,setAllData]=useState({});
-  const [presets,setPresets]=useState(DEFAULT_PRESETS);
-  const [selDate,setSelDate]=useState(getTodayKey());
-  const [activeTab,setActiveTab]=useState("log");
-  const today=getTodayKey();
-  const [calMonth,setCalMonth]=useState(today.slice(0,7));
-  const [showForm,setShowForm]=useState(false);
-  const [form,setForm]=useState(EMPTY_FORM);
-  const [editId,setEditId]=useState(null);
-  const [presetSearch,setPresetSearch]=useState("");
-  const [showLibrary,setShowLibrary]=useState(false);
-  const [presetForm,setPresetForm]=useState(EMPTY_PRESET);
-  const [editPresetId,setEditPresetId]=useState(null);
-  const [libSearch,setLibSearch]=useState("");
-  const [showReport,setShowReport]=useState(false);
-  const [reportRange,setReportRange]=useState("7");
-  const [reportFrom,setReportFrom]=useState("");
-  const [reportTo,setReportTo]=useState(today);
-  const [cameraStep,setCameraStep]=useState("idle");
-  const [capturedImage,setCapturedImage]=useState(null);
-  const [analysisError,setAnalysisError]=useState("");
-  const videoRef=useRef(null);
-  const streamRef=useRef(null);
-  const fileInputRef=useRef(null);
+// ─── Weight Chart (pure SVG, no library needed) ───────────────────────────────
+function WeightChart({ entries }) {
+  if (entries.length < 2) return null;
+  const W = 320, H = 140, PAD = { top:16, right:16, bottom:28, left:36 };
+  const vals = entries.map(e => e.weight);
+  const minV = Math.min(...vals), maxV = Math.max(...vals);
+  const range = maxV - minV || 1;
+  const chartW = W - PAD.left - PAD.right;
+  const chartH = H - PAD.top - PAD.bottom;
 
+  const px = (i) => PAD.left + (i / (entries.length - 1)) * chartW;
+  const py = (v) => PAD.top + chartH - ((v - minV) / range) * chartH;
+
+  const points = entries.map((e,i) => `${px(i)},${py(e.weight)}`).join(" ");
+  const areaPoints = `${px(0)},${PAD.top+chartH} ${points} ${px(entries.length-1)},${PAD.top+chartH}`;
+
+  // Y axis labels
+  const yLabels = [minV, (minV+maxV)/2, maxV].map(v => Math.round(v*10)/10);
+
+  // X axis: show first, middle, last
+  const xIdxs = [0, Math.floor((entries.length-1)/2), entries.length-1];
+
+  return (
+    <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{overflow:"visible"}}>
+      {/* Area fill */}
+      <defs>
+        <linearGradient id="wg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#8b5cf6" stopOpacity="0.25"/>
+          <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0.02"/>
+        </linearGradient>
+      </defs>
+      <polygon points={areaPoints} fill="url(#wg)"/>
+
+      {/* Grid lines */}
+      {yLabels.map((v,i) => (
+        <line key={i} x1={PAD.left} y1={py(v)} x2={W-PAD.right} y2={py(v)}
+          stroke="#e8e0f8" strokeWidth="1" strokeDasharray="4,3"/>
+      ))}
+
+      {/* Line */}
+      <polyline points={points} fill="none" stroke="#8b5cf6" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round"/>
+
+      {/* Dots */}
+      {entries.map((e,i) => (
+        <circle key={i} cx={px(i)} cy={py(e.weight)} r="4" fill="white" stroke="#8b5cf6" strokeWidth="2.5"/>
+      ))}
+
+      {/* Y labels */}
+      {yLabels.map((v,i) => (
+        <text key={i} x={PAD.left-5} y={py(v)+4} textAnchor="end" fontSize="9" fill="#9b87c2">{v}</text>
+      ))}
+
+      {/* X labels */}
+      {xIdxs.map(i => (
+        <text key={i} x={px(i)} y={H-4} textAnchor="middle" fontSize="9" fill="#9b87c2">
+          {formatDateShort(entries[i].date)}
+        </text>
+      ))}
+    </svg>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+export default function App() {
+  const [allData,setAllData]     = useState({});
+  const [presets,setPresets]     = useState(DEFAULT_PRESETS);
+  const [selDate,setSelDate]     = useState(getTodayKey());
+  const [activeTab,setActiveTab] = useState("log");
+  const today = getTodayKey();
+  const [calMonth,setCalMonth]   = useState(today.slice(0,7));
+
+  // ── Weight state ────────────────────────────────────────────────────────────
+  const [weightLog,  setWeightLog]  = useState([]); // [{date, weight}]
+  const [weightInput,setWeightInput]= useState("");
+  const [weightDate, setWeightDate] = useState(today);
+  const [weightGoal, setWeightGoal] = useState("");
+  const [editWeightId, setEditWeightId] = useState(null);
+
+  // Meal modal
+  const [showForm,setShowForm]       = useState(false);
+  const [form,setForm]               = useState(EMPTY_FORM);
+  const [editId,setEditId]           = useState(null);
+  const [presetSearch,setPresetSearch] = useState("");
+
+  // Library modal
+  const [showLibrary,setShowLibrary]   = useState(false);
+  const [presetForm,setPresetForm]     = useState(EMPTY_PRESET);
+  const [editPresetId,setEditPresetId] = useState(null);
+  const [libSearch,setLibSearch]       = useState("");
+
+  // Report modal
+  const [showReport,setShowReport]   = useState(false);
+  const [reportRange,setReportRange] = useState("7");
+  const [reportFrom,setReportFrom]   = useState("");
+  const [reportTo,setReportTo]       = useState(today);
+
+  // Camera
+  const [cameraStep,setCameraStep]       = useState("idle");
+  const [capturedImage,setCapturedImage] = useState(null);
+  const [analysisError,setAnalysisError] = useState("");
+  const videoRef    = useRef(null);
+  const streamRef   = useRef(null);
+  const fileInputRef = useRef(null);
+
+  // ── Persistence ──────────────────────────────────────────────────────────
   useEffect(()=>{
     const d=localStorage.getItem("nourish_data_v3");
     const p=localStorage.getItem("nourish_presets_v1");
+    const w=localStorage.getItem("nourish_weight_v1");
+    const wg=localStorage.getItem("nourish_weight_goal_v1");
     if(d) try{setAllData(JSON.parse(d));}catch{}
     if(p) try{setPresets(JSON.parse(p));}catch{}
+    if(w) try{setWeightLog(JSON.parse(w));}catch{}
+    if(wg) setWeightGoal(wg);
   },[]);
   useEffect(()=>{localStorage.setItem("nourish_data_v3",JSON.stringify(allData));},[allData]);
   useEffect(()=>{localStorage.setItem("nourish_presets_v1",JSON.stringify(presets));},[presets]);
+  useEffect(()=>{localStorage.setItem("nourish_weight_v1",JSON.stringify(weightLog));},[weightLog]);
+  useEffect(()=>{localStorage.setItem("nourish_weight_goal_v1",weightGoal);},[weightGoal]);
 
+  // ── Camera ────────────────────────────────────────────────────────────────
   const stopCamera=useCallback(()=>{streamRef.current?.getTracks().forEach(t=>t.stop());streamRef.current=null;},[]);
   useEffect(()=>{if(!showForm){stopCamera();setCameraStep("idle");setCapturedImage(null);setAnalysisError("");}},[showForm,stopCamera]);
 
   async function startCamera(){
-    setAnalysisError("");setCameraStep("preview");
+    setAnalysisError(""); setCameraStep("preview");
     try{
       const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"},audio:false});
       streamRef.current=s;
@@ -181,6 +271,7 @@ export default function App() {
     }catch{setAnalysisError("Could not analyse. Fill macros manually.");setCameraStep("done");}
   }
 
+  // ── Meal helpers ──────────────────────────────────────────────────────────
   const todayMeals=allData[selDate]||[];
   const totals=getDayTotals(todayMeals);
   const calPct=Math.min((totals.calories/CAL_GOAL)*100,100);
@@ -202,6 +293,7 @@ export default function App() {
   }
   function deleteMeal(id){const u={...allData};u[selDate]=(u[selDate]||[]).filter(m=>m.id!==id);setAllData(u);}
 
+  // ── Preset helpers ────────────────────────────────────────────────────────
   function savePreset(){
     if(!presetForm.name.trim())return;
     if(editPresetId)setPresets(ps=>ps.map(p=>p.id===editPresetId?{...presetForm,id:editPresetId}:p));
@@ -211,15 +303,44 @@ export default function App() {
   function editPreset(p){setPresetForm({...p});setEditPresetId(p.id);}
   function deletePreset(id){setPresets(ps=>ps.filter(p=>p.id!==id));if(editPresetId===id){setPresetForm(EMPTY_PRESET);setEditPresetId(null);}}
   function cancelPresetEdit(){setPresetForm(EMPTY_PRESET);setEditPresetId(null);}
-
   const filteredPresets=presets.filter(p=>!presetSearch||p.name.toLowerCase().includes(presetSearch.toLowerCase()));
   const libFiltered=presets.filter(p=>!libSearch||p.name.toLowerCase().includes(libSearch.toLowerCase()));
 
+  // ── Weight helpers ────────────────────────────────────────────────────────
+  const sortedWeight = [...weightLog].sort((a,b)=>a.date.localeCompare(b.date));
+  const latestWeight = sortedWeight.length>0 ? sortedWeight[sortedWeight.length-1].weight : null;
+  const firstWeight  = sortedWeight.length>0 ? sortedWeight[0].weight : null;
+  const weightChange = (latestWeight&&firstWeight) ? Math.round((latestWeight-firstWeight)*10)/10 : null;
+
+  function saveWeight(){
+    if(!weightInput||isNaN(Number(weightInput)))return;
+    const w=Number(weightInput);
+    if(editWeightId){
+      setWeightLog(wl=>wl.map(e=>e.id===editWeightId?{...e,weight:w,date:weightDate}:e));
+      setEditWeightId(null);
+    } else {
+      // Replace if same date exists
+      const exists=weightLog.find(e=>e.date===weightDate);
+      if(exists){
+        setWeightLog(wl=>wl.map(e=>e.date===weightDate?{...e,weight:w}:e));
+      } else {
+        setWeightLog(wl=>[...wl,{id:generateId(),date:weightDate,weight:w}]);
+      }
+    }
+    setWeightInput("");
+    setWeightDate(today);
+  }
+  function deleteWeight(id){setWeightLog(wl=>wl.filter(e=>e.id!==id));}
+  function startEditWeight(e){setEditWeightId(e.id);setWeightInput(String(e.weight));setWeightDate(e.date);}
+  function cancelEditWeight(){setEditWeightId(null);setWeightInput("");setWeightDate(today);}
+
+  // ── Calendar helpers ──────────────────────────────────────────────────────
   const calGrid=buildCalendarGrid(calMonth+"-01");
   function prevMonth(){const [y,m]=calMonth.split("-").map(Number);const d=new Date(y,m-2,1);setCalMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);}
   function nextMonth(){const [y,m]=calMonth.split("-").map(Number);const d=new Date(y,m,1);setCalMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);}
   const monthLabel=new Date(calMonth+"-01").toLocaleDateString("en-US",{month:"long",year:"numeric"});
 
+  // ── Report helpers ────────────────────────────────────────────────────────
   function getReportDates(){
     if(reportRange==="custom"){
       if(!reportFrom||!reportTo)return[];
@@ -236,6 +357,7 @@ export default function App() {
   const reportTotals=reportDates.reduce((a,d)=>{const t=getDayTotals(allData[d]||[]);return{calories:a.calories+t.calories,protein:a.protein+t.protein,carbs:a.carbs+t.carbs,fat:a.fat+t.fat};},{calories:0,protein:0,carbs:0,fat:0});
   const avgCalories=reportDaysWithData.length>0?Math.round(reportTotals.calories/reportDaysWithData.length):0;
 
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#f8f0ff 0%,#e8f4fd 50%,#f0fff4 100%)",fontFamily:"Georgia,serif"}}>
 
@@ -253,13 +375,13 @@ export default function App() {
       </div>
 
       {/* Tabs */}
-      <div style={{display:"flex",padding:"11px 16px 0",gap:5}}>
-        {[["log","📋 Daily Log"],["calendar","📅 Calendar"]].map(([tab,label])=>(
-          <button key={tab} onClick={()=>setActiveTab(tab)} style={{padding:"6px 14px",borderRadius:20,border:"1.5px solid",borderColor:activeTab===tab?"#8b5cf6":"#d0c4f0",background:activeTab===tab?"#8b5cf6":"white",color:activeTab===tab?"white":"#6b5b9e",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{label}</button>
+      <div style={{display:"flex",padding:"11px 16px 0",gap:5,overflowX:"auto"}}>
+        {[["log","📋 Log"],["calendar","📅 Calendar"],["weight","⚖️ Weight"]].map(([tab,label])=>(
+          <button key={tab} onClick={()=>setActiveTab(tab)} style={{padding:"6px 14px",borderRadius:20,border:"1.5px solid",borderColor:activeTab===tab?"#8b5cf6":"#d0c4f0",background:activeTab===tab?"#8b5cf6":"white",color:activeTab===tab?"white":"#6b5b9e",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0}}>{label}</button>
         ))}
       </div>
 
-      {/* Daily Log */}
+      {/* ══ DAILY LOG ══ */}
       {activeTab==="log"&&(
         <div style={{padding:"13px 16px 80px"}}>
           <div style={{fontSize:13,color:"#6b5b9e",fontStyle:"italic",marginBottom:11}}>{selDate===today?"Today — ":""}{formatDateLong(selDate)}</div>
@@ -308,7 +430,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Calendar */}
+      {/* ══ CALENDAR ══ */}
       {activeTab==="calendar"&&(
         <div style={{padding:"13px 16px 80px"}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
@@ -365,11 +487,120 @@ export default function App() {
         </div>
       )}
 
+      {/* ══ WEIGHT TRACKER ══ */}
+      {activeTab==="weight"&&(
+        <div style={{padding:"13px 16px 80px"}}>
+
+          {/* Stats row */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:9,marginBottom:14}}>
+            {[
+              {label:"Current",val:latestWeight?`${latestWeight}`:"-",unit:latestWeight?"kg":"",color:"#8b5cf6"},
+              {label:"Change",val:weightChange!==null?(weightChange>0?`+${weightChange}`:String(weightChange)):"-",unit:weightChange!==null?"kg":"",color:weightChange===null?"#9b87c2":weightChange<0?"#4ECDC4":weightChange>0?"#FF6B6B":"#9b87c2"},
+              {label:"Goal",val:weightGoal?`${weightGoal}`:"-",unit:weightGoal?"kg":"",color:"#FFD93D"},
+            ].map(s=>(
+              <div key={s.label} style={{background:"white",borderRadius:13,padding:"12px 10px",boxShadow:"0 2px 12px rgba(139,92,246,0.08)",textAlign:"center"}}>
+                <div style={{fontSize:20,fontWeight:700,color:s.color,lineHeight:1}}>{s.val}<span style={{fontSize:11}}>{s.unit}</span></div>
+                <div style={{fontSize:10,color:"#9b87c2",marginTop:3}}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Goal setter */}
+          <div style={{background:"white",borderRadius:13,padding:"12px 14px",marginBottom:14,boxShadow:"0 2px 12px rgba(139,92,246,0.06)",display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:13,color:"#6b5b9e",fontWeight:600}}>🎯 Weight Goal</span>
+            <input type="number" min="0" step="0.1" placeholder="e.g. 75" value={weightGoal}
+              onChange={e=>setWeightGoal(e.target.value)}
+              style={{...smallInput,flex:1,marginBottom:0}}/>
+            <span style={{fontSize:12,color:"#9b87c2"}}>kg</span>
+          </div>
+
+          {/* Log entry form */}
+          <div style={{background:"#faf6ff",border:"1.5px solid #d0c4f0",borderRadius:13,padding:"13px 14px",marginBottom:14}}>
+            <div style={{fontSize:12,fontWeight:700,color:"#3d1f6b",marginBottom:10}}>
+              {editWeightId?"✏️ Edit Entry":"➕ Log Weight"}
+            </div>
+            <div style={{display:"flex",gap:8,marginBottom:8}}>
+              <div style={{flex:1}}>
+                <div style={{fontSize:10,color:"#9b87c2",marginBottom:4}}>Date</div>
+                <input type="date" value={weightDate} onChange={e=>setWeightDate(e.target.value)}
+                  style={{...smallInput,width:"100%",boxSizing:"border-box"}}/>
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:10,color:"#9b87c2",marginBottom:4}}>Weight (kg)</div>
+                <input type="number" min="0" step="0.1" placeholder="e.g. 78.5" value={weightInput}
+                  onChange={e=>setWeightInput(e.target.value)}
+                  style={{...smallInput,width:"100%",boxSizing:"border-box"}}/>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              {editWeightId&&(
+                <button onClick={cancelEditWeight} style={{flex:1,padding:"9px",borderRadius:10,border:"1.5px solid #d0c4f0",background:"white",color:"#6b5b9e",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+              )}
+              <button onClick={saveWeight} style={{flex:2,padding:"9px",borderRadius:10,border:"none",background:weightInput?"linear-gradient(135deg,#8b5cf6,#6366f1)":"#d0c4f0",color:"white",fontSize:12,fontWeight:700,cursor:weightInput?"pointer":"default",fontFamily:"inherit"}}>
+                {editWeightId?"Save Changes":"Log Weight"}
+              </button>
+            </div>
+          </div>
+
+          {/* Chart */}
+          {sortedWeight.length>=2&&(
+            <div style={{background:"white",borderRadius:13,padding:"14px",marginBottom:14,boxShadow:"0 2px 12px rgba(139,92,246,0.08)"}}>
+              <div style={{fontSize:12,fontWeight:700,color:"#3d1f6b",marginBottom:10}}>📈 Weight Trend</div>
+              <WeightChart entries={sortedWeight}/>
+              {weightGoal&&latestWeight&&(
+                <div style={{marginTop:8,fontSize:11,color:"#9b87c2",textAlign:"center"}}>
+                  {Math.abs(Math.round((latestWeight-Number(weightGoal))*10)/10)} kg {latestWeight>Number(weightGoal)?"to lose":"below goal"} · goal {weightGoal} kg
+                </div>
+              )}
+            </div>
+          )}
+          {sortedWeight.length===1&&(
+            <div style={{textAlign:"center",color:"#b8a9d9",fontSize:12,fontStyle:"italic",padding:"10px 0"}}>Log one more entry to see your trend chart.</div>
+          )}
+
+          {/* Entry list */}
+          {sortedWeight.length>0&&(
+            <div style={{background:"white",borderRadius:13,padding:"13px 14px",boxShadow:"0 2px 12px rgba(139,92,246,0.06)"}}>
+              <div style={{fontSize:12,fontWeight:700,color:"#3d1f6b",marginBottom:10}}>📋 All Entries</div>
+              {[...sortedWeight].reverse().map((e,i,arr)=>{
+                const prev=arr[i+1];
+                const diff=prev?Math.round((e.weight-prev.weight)*10)/10:null;
+                return(
+                  <div key={e.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid #f0ebff"}}>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:600,color:"#2d1b55"}}>{e.weight} kg</div>
+                      <div style={{fontSize:10,color:"#9b87c2"}}>{formatDateLong(e.date)}</div>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      {diff!==null&&(
+                        <span style={{fontSize:11,fontWeight:600,color:diff<0?"#4ECDC4":diff>0?"#FF6B6B":"#9b87c2"}}>
+                          {diff>0?"+":""}{diff} kg
+                        </span>
+                      )}
+                      <button onClick={()=>startEditWeight(e)} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,padding:2}}>✏️</button>
+                      <button onClick={()=>deleteWeight(e.id)} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,padding:2}}>🗑</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {sortedWeight.length===0&&(
+            <div style={{textAlign:"center",color:"#b8a9d9",fontSize:13,fontStyle:"italic",marginTop:20,padding:20}}>
+              No weight entries yet.<br/>Log your first weigh-in above!
+            </div>
+          )}
+        </div>
+      )}
+
       {/* FAB */}
-      <button onClick={openAdd} style={{position:"fixed",bottom:24,right:20,width:52,height:52,borderRadius:"50%",background:"linear-gradient(135deg,#8b5cf6,#6366f1)",border:"none",color:"white",fontSize:24,cursor:"pointer",boxShadow:"0 6px 24px rgba(139,92,246,0.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100}}>+</button>
+      {activeTab!=="weight"&&(
+        <button onClick={openAdd} style={{position:"fixed",bottom:24,right:20,width:52,height:52,borderRadius:"50%",background:"linear-gradient(135deg,#8b5cf6,#6366f1)",border:"none",color:"white",fontSize:24,cursor:"pointer",boxShadow:"0 6px 24px rgba(139,92,246,0.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100}}>+</button>
+      )}
       <input ref={fileInputRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleFileUpload}/>
 
-      {/* Add/Edit Meal Modal */}
+      {/* ══ ADD/EDIT MEAL MODAL ══ */}
       {showForm&&(
         <div style={{position:"fixed",inset:0,background:"rgba(30,10,60,0.45)",backdropFilter:"blur(4px)",zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget)setShowForm(false);}}>
           <div style={{background:"white",borderRadius:"22px 22px 0 0",padding:"20px 16px 34px",width:"100%",maxWidth:480,boxShadow:"0 -8px 40px rgba(139,92,246,0.18)",maxHeight:"92vh",overflowY:"auto"}}>
@@ -449,7 +680,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Library Modal */}
+      {/* ══ LIBRARY MODAL ══ */}
       {showLibrary&&(
         <div style={{position:"fixed",inset:0,background:"rgba(30,10,60,0.45)",backdropFilter:"blur(4px)",zIndex:300,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget){setShowLibrary(false);cancelPresetEdit();}}}>
           <div style={{background:"white",borderRadius:"22px 22px 0 0",padding:"20px 16px 34px",width:"100%",maxWidth:480,boxShadow:"0 -8px 40px rgba(139,92,246,0.18)",maxHeight:"92vh",overflowY:"auto"}}>
@@ -491,7 +722,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Report Modal */}
+      {/* ══ REPORT MODAL ══ */}
       {showReport&&(
         <div style={{position:"fixed",inset:0,background:"rgba(30,10,60,0.45)",backdropFilter:"blur(4px)",zIndex:300,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget)setShowReport(false);}}>
           <div style={{background:"white",borderRadius:"22px 22px 0 0",padding:"20px 16px 36px",width:"100%",maxWidth:480,boxShadow:"0 -8px 40px rgba(139,92,246,0.18)",maxHeight:"90vh",overflowY:"auto"}}>
