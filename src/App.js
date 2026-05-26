@@ -356,7 +356,6 @@ export default function App(){
   // ── Meals ─────────────────────────────────────────────────────────────────
   const todayMeals=allData[selDate]||[];
   const totals=getDayTotals(todayMeals);
-  const calPct=Math.min((totals.calories/CAL_GOAL)*100,100);
   const streak=calcStreak(allData);
 
   function updateMacro(key,val){setForm(f=>{const n={...f,[key]:val};n.calories=calcCalories(n.protein,n.carbs,n.fat);return n;});}
