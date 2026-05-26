@@ -1,97 +1,241 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import * as XLSX from "xlsx";
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-const MEAL_TYPES = ["Breakfast", "Lunch", "Dinner", "Snack"];
-const mealEmoji = { Breakfast: "🌅", Lunch: "☀️", Dinner: "🌙", Snack: "🍎" };
-const pastelBg = { breakfast:"#FFD6A544", lunch:"#CAFFBF44", dinner:"#A0C4FF44", snack:"#FFC6FF44" };
-const CAL_GOAL = 2000;
+// ─── Design Tokens — Dark Premium Theme ──────────────────────────────────────
+const C = {
+  bg:        "#0d0d14",
+  bg1:       "#13131f",
+  bg2:       "#1a1a2e",
+  bg3:       "#22223a",
+  border:    "#2a2a45",
+  borderHi:  "#a78bfa44",
+  text:      "#f0eeff",
+  textSub:   "#7c7a9e",
+  textMuted: "#3d3b5c",
+  accent:    "#a78bfa",
+  accentDim: "#7c3aed",
+  accentGlow:"rgba(167,139,250,0.25)",
+  green:     "#34d399",
+  red:       "#f87171",
+  amber:     "#fbbf24",
+  cyan:      "#67e8f9",
+};
+
+const MEAL_TYPES = ["Breakfast","Lunch","Dinner","Snack"];
+const mealEmoji  = {Breakfast:"🌅",Lunch:"☀️",Dinner:"🌙",Snack:"🍎"};
+const mealColor  = {Breakfast:"#f59e0b",Lunch:"#34d399",Dinner:"#a78bfa",Snack:"#f87171"};
+const CAL_GOAL   = 2000;
 
 const DEFAULT_PRESETS = [
-  { id:"p1",  name:"Black Coffee",       emoji:"☕", protein:0,  carbs:0,  fat:0,  notes:"No milk/sugar" },
-  { id:"p2",  name:"Latte (Flat White)", emoji:"🥛", protein:4,  carbs:8,  fat:5,  notes:"Whole milk" },
-  { id:"p3",  name:"Protein Shake",      emoji:"🥤", protein:25, carbs:5,  fat:3,  notes:"1 scoop whey + water" },
-  { id:"p4",  name:"Protein Bar",        emoji:"🍫", protein:20, carbs:22, fat:8,  notes:"~220 kcal bar" },
-  { id:"p5",  name:"Banana",             emoji:"🍌", protein:1,  carbs:27, fat:0,  notes:"Medium banana" },
-  { id:"p6",  name:"Greek Yogurt",       emoji:"🥣", protein:17, carbs:6,  fat:0,  notes:"170g non-fat" },
-  { id:"p7",  name:"Boiled Eggs (x2)",   emoji:"🥚", protein:13, carbs:1,  fat:10, notes:"Hard boiled" },
-  { id:"p8",  name:"Oatmeal",            emoji:"🥣", protein:5,  carbs:27, fat:3,  notes:"40g oats + water" },
-  { id:"p9",  name:"Chicken Breast",     emoji:"🍗", protein:31, carbs:0,  fat:3,  notes:"100g grilled" },
-  { id:"p10", name:"Brown Rice",         emoji:"🍚", protein:3,  carbs:44, fat:1,  notes:"180g cooked" },
-  { id:"p11", name:"Avocado Toast",      emoji:"🥑", protein:5,  carbs:28, fat:12, notes:"1 slice sourdough" },
-  { id:"p12", name:"Almonds (30g)",      emoji:"🌰", protein:6,  carbs:5,  fat:15, notes:"Small handful" },
+  {id:"p1", name:"Black Coffee",      emoji:"☕",protein:0, carbs:0, fat:0, notes:"No milk/sugar"},
+  {id:"p2", name:"Latte (Flat White)",emoji:"🥛",protein:4, carbs:8, fat:5, notes:"Whole milk"},
+  {id:"p3", name:"Protein Shake",     emoji:"🥤",protein:25,carbs:5, fat:3, notes:"1 scoop whey + water"},
+  {id:"p4", name:"Protein Bar",       emoji:"🍫",protein:20,carbs:22,fat:8, notes:"~220 kcal bar"},
+  {id:"p5", name:"Banana",            emoji:"🍌",protein:1, carbs:27,fat:0, notes:"Medium banana"},
+  {id:"p6", name:"Greek Yogurt",      emoji:"🥣",protein:17,carbs:6, fat:0, notes:"170g non-fat"},
+  {id:"p7", name:"Boiled Eggs (x2)",  emoji:"🥚",protein:13,carbs:1, fat:10,notes:"Hard boiled"},
+  {id:"p8", name:"Oatmeal",           emoji:"🥣",protein:5, carbs:27,fat:3, notes:"40g oats + water"},
+  {id:"p9", name:"Chicken Breast",    emoji:"🍗",protein:31,carbs:0, fat:3, notes:"100g grilled"},
+  {id:"p10",name:"Brown Rice",        emoji:"🍚",protein:3, carbs:44,fat:1, notes:"180g cooked"},
+  {id:"p11",name:"Avocado Toast",     emoji:"🥑",protein:5, carbs:28,fat:12,notes:"1 slice sourdough"},
+  {id:"p12",name:"Almonds (30g)",     emoji:"🌰",protein:6, carbs:5, fat:15,notes:"Small handful"},
 ];
 
-const generateId = () => Math.random().toString(36).slice(2,10);
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const generateId  = () => Math.random().toString(36).slice(2,10);
 const getTodayKey = () => new Date().toISOString().slice(0,10);
 
-function calcCalories(p,c,f) {
-  const pn=Number(p)||0, cn=Number(c)||0, fn=Number(f)||0;
-  if (!pn&&!cn&&!fn) return "";
+function calcCalories(p,c,f){
+  const pn=Number(p)||0,cn=Number(c)||0,fn=Number(f)||0;
+  if(!pn&&!cn&&!fn) return "";
   return String(Math.round(pn*4+cn*4+fn*9));
 }
-function formatDateLong(d) {
-  const [y,m,day] = d.split("-");
+function formatDateLong(d){
+  const [y,m,day]=d.split("-");
   return new Date(y,m-1,day).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
 }
-function formatDateShort(d) {
-  const [y,m,day] = d.split("-");
+function formatDateShort(d){
+  const [y,m,day]=d.split("-");
   return new Date(y,m-1,day).toLocaleDateString("en-US",{month:"short",day:"numeric"});
 }
-function getDayTotals(meals=[]) {
+function getDayTotals(meals=[]){
   return meals.reduce((a,m)=>({
     calories:a.calories+(Number(m.calories)||0),
-    protein:a.protein+(Number(m.protein)||0),
-    carbs:a.carbs+(Number(m.carbs)||0),
-    fat:a.fat+(Number(m.fat)||0),
+    protein: a.protein +(Number(m.protein)||0),
+    carbs:   a.carbs   +(Number(m.carbs)||0),
+    fat:     a.fat     +(Number(m.fat)||0),
   }),{calories:0,protein:0,carbs:0,fat:0});
 }
-function buildCalendarGrid(baseDate) {
-  const [y,m] = baseDate.split("-").map(Number);
-  const first = new Date(y,m-1,1);
-  const last  = new Date(y,m,0);
-  const cells = [];
-  for (let i=0;i<first.getDay();i++) cells.push(null);
-  for (let d=1;d<=last.getDate();d++)
+function buildCalendarGrid(baseDate){
+  const [y,m]=baseDate.split("-").map(Number);
+  const first=new Date(y,m-1,1), last=new Date(y,m,0);
+  const cells=[];
+  for(let i=0;i<first.getDay();i++) cells.push(null);
+  for(let d=1;d<=last.getDate();d++)
     cells.push(`${y}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`);
-  while (cells.length%7!==0) cells.push(null);
+  while(cells.length%7!==0) cells.push(null);
   return cells;
+}
+function calcStreak(allData){
+  let streak=0, d=new Date();
+  while(true){
+    const key=d.toISOString().slice(0,10);
+    if((allData[key]||[]).length>0){ streak++; d.setDate(d.getDate()-1); }
+    else break;
+  }
+  return streak;
+}
+function getGreeting(){
+  const h=new Date().getHours();
+  if(h<12) return "Good morning";
+  if(h<17) return "Good afternoon";
+  return "Good evening";
 }
 
 const EMPTY_FORM   = {type:"Breakfast",name:"",calories:"",protein:"",carbs:"",fat:"",notes:""};
 const EMPTY_PRESET = {name:"",emoji:"🍽",protein:"",carbs:"",fat:"",notes:""};
 
-const inputStyle = {
-  width:"100%",padding:"10px 14px",borderRadius:10,
-  border:"1.5px solid #d0c4f0",fontSize:14,color:"#3d1f6b",
-  background:"#faf8ff",outline:"none",fontFamily:"Georgia,serif",
+// ─── Shared input style (dark) ────────────────────────────────────────────────
+const inp = {
+  width:"100%",padding:"11px 14px",borderRadius:10,
+  border:`1px solid ${C.border}`,fontSize:14,color:C.text,
+  background:C.bg2,outline:"none",fontFamily:"'SF Pro Display',system-ui,sans-serif",
   marginBottom:10,boxSizing:"border-box",
 };
-const smallInput = {...inputStyle,fontSize:13,padding:"8px 10px",marginBottom:0};
 
-function exportPDF(allData, dateRange) {
-  const rows = dateRange.flatMap(date => {
-    const meals = allData[date] || [];
-    if (!meals.length) return [];
-    const t = getDayTotals(meals);
-    return [
-      `<tr style="background:#f0ebff"><td colspan="7" style="padding:6px 8px;font-weight:700;color:#3d1f6b">${formatDateLong(date)}</td></tr>`,
-      ...meals.map(m=>`<tr><td style="padding:4px 8px">${m.type}</td><td style="padding:4px 8px;font-weight:600">${m.name}</td><td style="padding:4px 8px;text-align:right">${m.calories||""}</td><td style="padding:4px 8px;text-align:right">${m.protein||""}</td><td style="padding:4px 8px;text-align:right">${m.carbs||""}</td><td style="padding:4px 8px;text-align:right">${m.fat||""}</td><td style="padding:4px 8px;color:#666;font-size:11px">${m.notes||""}</td></tr>`),
-      `<tr style="background:#faf8ff;font-style:italic;font-size:11px"><td colspan="2" style="padding:4px 8px;color:#9b87c2">Day total</td><td style="padding:4px 8px;text-align:right;color:#8b5cf6;font-weight:700">${t.calories}</td><td style="padding:4px 8px;text-align:right;color:#FF6B6B">${t.protein}g</td><td style="padding:4px 8px;text-align:right;color:#4ECDC4">${t.carbs}g</td><td style="padding:4px 8px;text-align:right;color:#FFD93D">${t.fat}g</td><td></td></tr>`,
-    ];
-  });
-  const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Nourish Report</title><style>body{font-family:Georgia,serif;padding:28px;color:#2d1b55;font-size:13px}h1{font-size:22px;color:#3d1f6b}table{width:100%;border-collapse:collapse}th{background:#3d1f6b;color:white;padding:7px 8px;text-align:left;font-size:12px}tr:nth-child(even){background:#faf8ff}@media print{button{display:none}}</style></head><body><h1>🍽 Nourish — Meal Report</h1><p>Generated ${new Date().toLocaleDateString("en-US",{year:"numeric",month:"long",day:"numeric"})}</p><table><thead><tr><th>Meal Type</th><th>Food</th><th>Calories</th><th>Protein</th><th>Carbs</th><th>Fat</th><th>Notes</th></tr></thead><tbody>${rows.join("")}</tbody></table></body></html>`;
-  const win=window.open("","_blank");
-  win.document.write(html);
-  win.document.close();
-  setTimeout(()=>win.print(),400);
+// ─── Macro bar component ──────────────────────────────────────────────────────
+function MacroBar({label,val,goal=200,color}){
+  const pct=Math.min(val/goal,1)*100;
+  return(
+    <div style={{marginBottom:10}}>
+      <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
+        <span style={{fontSize:11,color:C.textSub,fontWeight:600,letterSpacing:"0.06em",textTransform:"uppercase"}}>{label}</span>
+        <span style={{fontSize:11,color,fontWeight:700}}>{val}g</span>
+      </div>
+      <div style={{height:4,borderRadius:4,background:C.bg3,overflow:"hidden"}}>
+        <div style={{height:"100%",width:`${pct}%`,borderRadius:4,background:color,
+          boxShadow:`0 0 8px ${color}88`,transition:"width 0.6s ease"}}/>
+      </div>
+    </div>
+  );
 }
 
-function exportExcel(allData, dateRange) {
+// ─── Weight Chart ─────────────────────────────────────────────────────────────
+function WeightChart({entries}){
+  if(entries.length<2) return null;
+  const W=320,H=130,PAD={top:14,right:14,bottom:26,left:34};
+  const vals=entries.map(e=>e.weight);
+  const minV=Math.min(...vals),maxV=Math.max(...vals);
+  const range=maxV-minV||1;
+  const cW=W-PAD.left-PAD.right, cH=H-PAD.top-PAD.bottom;
+  const px=i=>PAD.left+(i/(entries.length-1))*cW;
+  const py=v=>PAD.top+cH-((v-minV)/range)*cH;
+  const pts=entries.map((e,i)=>`${px(i)},${py(e.weight)}`).join(" ");
+  const area=`${px(0)},${PAD.top+cH} ${pts} ${px(entries.length-1)},${PAD.top+cH}`;
+  const yL=[minV,(minV+maxV)/2,maxV].map(v=>Math.round(v*10)/10);
+  const xI=[0,Math.floor((entries.length-1)/2),entries.length-1];
+  return(
+    <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{overflow:"visible"}}>
+      <defs>
+        <linearGradient id="wg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={C.accent} stopOpacity="0.3"/>
+          <stop offset="100%" stopColor={C.accent} stopOpacity="0.0"/>
+        </linearGradient>
+      </defs>
+      <polygon points={area} fill="url(#wg)"/>
+      {yL.map((v,i)=>(
+        <line key={i} x1={PAD.left} y1={py(v)} x2={W-PAD.right} y2={py(v)}
+          stroke={C.border} strokeWidth="1" strokeDasharray="4,3"/>
+      ))}
+      <polyline points={pts} fill="none" stroke={C.accent} strokeWidth="2.5"
+        strokeLinejoin="round" strokeLinecap="round"
+        style={{filter:`drop-shadow(0 0 4px ${C.accent})`}}/>
+      {entries.map((e,i)=>(
+        <circle key={i} cx={px(i)} cy={py(e.weight)} r="4"
+          fill={C.bg1} stroke={C.accent} strokeWidth="2.5"/>
+      ))}
+      {yL.map((v,i)=>(
+        <text key={i} x={PAD.left-5} y={py(v)+4} textAnchor="end" fontSize="9" fill={C.textSub}>{v}</text>
+      ))}
+      {xI.map(i=>(
+        <text key={i} x={px(i)} y={H-4} textAnchor="middle" fontSize="9" fill={C.textSub}>
+          {formatDateShort(entries[i].date)}
+        </text>
+      ))}
+    </svg>
+  );
+}
+
+// ─── Calorie Ring ─────────────────────────────────────────────────────────────
+function CalRing({calories,goal=CAL_GOAL}){
+  const pct=Math.min(calories/goal,1);
+  const R=54, circ=2*Math.PI*R;
+  const over=calories>goal;
+  const color=over?C.red:C.accent;
+  return(
+    <div style={{position:"relative",width:128,height:128,flexShrink:0}}>
+      <svg width="128" height="128" viewBox="0 0 128 128">
+        <circle cx="64" cy="64" r={R} fill="none" stroke={C.bg3} strokeWidth="10"/>
+        <circle cx="64" cy="64" r={R} fill="none" stroke={color} strokeWidth="10"
+          strokeDasharray={`${pct*circ} ${circ}`} strokeLinecap="round"
+          transform="rotate(-90 64 64)"
+          style={{filter:`drop-shadow(0 0 8px ${color})`,transition:"stroke-dasharray 0.6s ease"}}/>
+      </svg>
+      <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
+        <span style={{fontSize:26,fontWeight:800,color:C.text,lineHeight:1,fontFamily:"'SF Pro Display',system-ui,sans-serif"}}>{calories}</span>
+        <span style={{fontSize:10,color:C.textSub,marginTop:2,letterSpacing:"0.08em"}}>KCAL</span>
+        <span style={{fontSize:9,color:C.textMuted,marginTop:1}}>{Math.round(pct*100)}% of {goal}</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Streak Card ──────────────────────────────────────────────────────────────
+function StreakCard({streak}){
+  return(
+    <div style={{background:`linear-gradient(135deg, #1e1b3a, #2a1f4e)`,
+      border:`1px solid ${C.borderHi}`,borderRadius:18,padding:"18px 20px",
+      display:"flex",alignItems:"center",justifyContent:"space-between",
+      boxShadow:`0 0 30px ${C.accentGlow}`,marginBottom:14}}>
+      <div>
+        <div style={{fontSize:11,color:C.textSub,fontWeight:600,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:4}}>
+          Current Streak
+        </div>
+        <div style={{display:"flex",alignItems:"baseline",gap:6}}>
+          <span style={{fontSize:44,fontWeight:800,color:C.text,lineHeight:1,fontFamily:"'SF Pro Display',system-ui,sans-serif"}}>{streak}</span>
+          <span style={{fontSize:16,color:C.textSub,fontWeight:500}}>days</span>
+        </div>
+        <div style={{fontSize:11,color:streak>0?C.accent:C.textMuted,marginTop:4}}>
+          {streak===0?"Log today to start your streak!":streak===1?"Great start — keep it going!":streak<7?`${7-streak} days until a week!`:`🔥 ${streak} day streak — incredible!`}
+        </div>
+      </div>
+      <div style={{fontSize:52,filter:streak>0?`drop-shadow(0 0 12px #f59e0b)`:"grayscale(1) opacity(0.3)"}}>
+        🔥
+      </div>
+    </div>
+  );
+}
+
+// ─── Export helpers ───────────────────────────────────────────────────────────
+function exportPDF(allData,dateRange){
+  const rows=dateRange.flatMap(date=>{
+    const meals=allData[date]||[]; if(!meals.length) return [];
+    const t=getDayTotals(meals);
+    return[
+      `<tr style="background:#1a1a2e"><td colspan="7" style="padding:6px 8px;font-weight:700;color:#a78bfa">${formatDateLong(date)}</td></tr>`,
+      ...meals.map(m=>`<tr><td style="padding:4px 8px">${m.type}</td><td style="padding:4px 8px;font-weight:600">${m.name}</td><td style="padding:4px 8px;text-align:right">${m.calories||""}</td><td style="padding:4px 8px;text-align:right">${m.protein||""}</td><td style="padding:4px 8px;text-align:right">${m.carbs||""}</td><td style="padding:4px 8px;text-align:right">${m.fat||""}</td><td style="padding:4px 8px;color:#999;font-size:11px">${m.notes||""}</td></tr>`),
+      `<tr style="font-style:italic;font-size:11px"><td colspan="2" style="padding:4px 8px;color:#666">Day total</td><td style="padding:4px 8px;text-align:right;color:#a78bfa;font-weight:700">${t.calories}</td><td style="padding:4px 8px;text-align:right;color:#f87171">${t.protein}g</td><td style="padding:4px 8px;text-align:right;color:#34d399">${t.carbs}g</td><td style="padding:4px 8px;text-align:right;color:#fbbf24">${t.fat}g</td><td></td></tr>`,
+    ];
+  });
+  const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Nourish Report</title><style>body{font-family:system-ui,sans-serif;padding:28px;color:#1a1a2e;font-size:13px}h1{font-size:22px;color:#7c3aed}table{width:100%;border-collapse:collapse}th{background:#0d0d14;color:white;padding:7px 8px;text-align:left;font-size:12px}tr:nth-child(even){background:#f8f8ff}@media print{button{display:none}}</style></head><body><h1>🍽 Nourish — Meal Report</h1><p>Generated ${new Date().toLocaleDateString("en-US",{year:"numeric",month:"long",day:"numeric"})}</p><table><thead><tr><th>Type</th><th>Food</th><th>Calories</th><th>Protein</th><th>Carbs</th><th>Fat</th><th>Notes</th></tr></thead><tbody>${rows.join("")}</tbody></table></body></html>`;
+  const win=window.open("","_blank");
+  win.document.write(html); win.document.close();
+  setTimeout(()=>win.print(),400);
+}
+function exportExcel(allData,dateRange){
   const rows=[["Date","Meal Type","Food Name","Calories (kcal)","Protein (g)","Carbs (g)","Fat (g)","Notes"]];
   dateRange.forEach(date=>{
-    const meals=allData[date]||[];
-    if(!meals.length) return;
+    const meals=allData[date]||[]; if(!meals.length) return;
     meals.forEach(m=>rows.push([formatDateLong(date),m.type,m.name,Number(m.calories)||"",Number(m.protein)||"",Number(m.carbs)||"",Number(m.fat)||"",m.notes||""]));
     const t=getDayTotals(meals);
     rows.push([`Day Total (${formatDateLong(date)})`, "","",t.calories,t.protein,t.carbs,t.fat,""]);
@@ -104,111 +248,49 @@ function exportExcel(allData, dateRange) {
   XLSX.writeFile(wb,`nourish-report-${getTodayKey()}.xlsx`);
 }
 
-// ─── Weight Chart (pure SVG, no library needed) ───────────────────────────────
-function WeightChart({ entries }) {
-  if (entries.length < 2) return null;
-  const W = 320, H = 140, PAD = { top:16, right:16, bottom:28, left:36 };
-  const vals = entries.map(e => e.weight);
-  const minV = Math.min(...vals), maxV = Math.max(...vals);
-  const range = maxV - minV || 1;
-  const chartW = W - PAD.left - PAD.right;
-  const chartH = H - PAD.top - PAD.bottom;
-
-  const px = (i) => PAD.left + (i / (entries.length - 1)) * chartW;
-  const py = (v) => PAD.top + chartH - ((v - minV) / range) * chartH;
-
-  const points = entries.map((e,i) => `${px(i)},${py(e.weight)}`).join(" ");
-  const areaPoints = `${px(0)},${PAD.top+chartH} ${points} ${px(entries.length-1)},${PAD.top+chartH}`;
-
-  // Y axis labels
-  const yLabels = [minV, (minV+maxV)/2, maxV].map(v => Math.round(v*10)/10);
-
-  // X axis: show first, middle, last
-  const xIdxs = [0, Math.floor((entries.length-1)/2), entries.length-1];
-
-  return (
-    <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{overflow:"visible"}}>
-      {/* Area fill */}
-      <defs>
-        <linearGradient id="wg" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#8b5cf6" stopOpacity="0.25"/>
-          <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0.02"/>
-        </linearGradient>
-      </defs>
-      <polygon points={areaPoints} fill="url(#wg)"/>
-
-      {/* Grid lines */}
-      {yLabels.map((v,i) => (
-        <line key={i} x1={PAD.left} y1={py(v)} x2={W-PAD.right} y2={py(v)}
-          stroke="#e8e0f8" strokeWidth="1" strokeDasharray="4,3"/>
-      ))}
-
-      {/* Line */}
-      <polyline points={points} fill="none" stroke="#8b5cf6" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round"/>
-
-      {/* Dots */}
-      {entries.map((e,i) => (
-        <circle key={i} cx={px(i)} cy={py(e.weight)} r="4" fill="white" stroke="#8b5cf6" strokeWidth="2.5"/>
-      ))}
-
-      {/* Y labels */}
-      {yLabels.map((v,i) => (
-        <text key={i} x={PAD.left-5} y={py(v)+4} textAnchor="end" fontSize="9" fill="#9b87c2">{v}</text>
-      ))}
-
-      {/* X labels */}
-      {xIdxs.map(i => (
-        <text key={i} x={px(i)} y={H-4} textAnchor="middle" fontSize="9" fill="#9b87c2">
-          {formatDateShort(entries[i].date)}
-        </text>
-      ))}
-    </svg>
-  );
-}
-
 // ═══════════════════════════════════════════════════════════════════════════════
-export default function App() {
-  const [allData,setAllData]     = useState({});
-  const [presets,setPresets]     = useState(DEFAULT_PRESETS);
-  const [selDate,setSelDate]     = useState(getTodayKey());
-  const [activeTab,setActiveTab] = useState("log");
+export default function App(){
+  const [allData,  setAllData]  = useState({});
+  const [presets,  setPresets]  = useState(DEFAULT_PRESETS);
+  const [selDate,  setSelDate]  = useState(getTodayKey());
+  const [activeTab,setActiveTab]= useState("log");
   const today = getTodayKey();
-  const [calMonth,setCalMonth]   = useState(today.slice(0,7));
+  const [calMonth, setCalMonth] = useState(today.slice(0,7));
 
-  // ── Weight state ────────────────────────────────────────────────────────────
-  const [weightLog,  setWeightLog]  = useState([]); // [{date, weight}]
-  const [weightInput,setWeightInput]= useState("");
-  const [weightDate, setWeightDate] = useState(today);
-  const [weightGoal, setWeightGoal] = useState("");
-  const [editWeightId, setEditWeightId] = useState(null);
+  // Weight
+  const [weightLog,   setWeightLog]   = useState([]);
+  const [weightInput, setWeightInput] = useState("");
+  const [weightDate,  setWeightDate]  = useState(today);
+  const [weightGoal,  setWeightGoal]  = useState("");
+  const [editWeightId,setEditWeightId]= useState(null);
 
   // Meal modal
-  const [showForm,setShowForm]       = useState(false);
-  const [form,setForm]               = useState(EMPTY_FORM);
-  const [editId,setEditId]           = useState(null);
-  const [presetSearch,setPresetSearch] = useState("");
+  const [showForm,     setShowForm]     = useState(false);
+  const [form,         setForm]         = useState(EMPTY_FORM);
+  const [editId,       setEditId]       = useState(null);
+  const [presetSearch, setPresetSearch] = useState("");
 
-  // Library modal
-  const [showLibrary,setShowLibrary]   = useState(false);
-  const [presetForm,setPresetForm]     = useState(EMPTY_PRESET);
-  const [editPresetId,setEditPresetId] = useState(null);
-  const [libSearch,setLibSearch]       = useState("");
+  // Library
+  const [showLibrary,   setShowLibrary]   = useState(false);
+  const [presetForm,    setPresetForm]    = useState(EMPTY_PRESET);
+  const [editPresetId,  setEditPresetId]  = useState(null);
+  const [libSearch,     setLibSearch]     = useState("");
 
-  // Report modal
-  const [showReport,setShowReport]   = useState(false);
-  const [reportRange,setReportRange] = useState("7");
-  const [reportFrom,setReportFrom]   = useState("");
-  const [reportTo,setReportTo]       = useState(today);
+  // Report
+  const [showReport,  setShowReport]  = useState(false);
+  const [reportRange, setReportRange] = useState("7");
+  const [reportFrom,  setReportFrom]  = useState("");
+  const [reportTo,    setReportTo]    = useState(today);
 
   // Camera
-  const [cameraStep,setCameraStep]       = useState("idle");
-  const [capturedImage,setCapturedImage] = useState(null);
-  const [analysisError,setAnalysisError] = useState("");
-  const videoRef    = useRef(null);
-  const streamRef   = useRef(null);
+  const [cameraStep,    setCameraStep]    = useState("idle");
+  const [capturedImage, setCapturedImage] = useState(null);
+  const [analysisError, setAnalysisError] = useState("");
+  const videoRef     = useRef(null);
+  const streamRef    = useRef(null);
   const fileInputRef = useRef(null);
 
-  // ── Persistence ──────────────────────────────────────────────────────────
+  // ── Persist ──────────────────────────────────────────────────────────────
   useEffect(()=>{
     const d=localStorage.getItem("nourish_data_v3");
     const p=localStorage.getItem("nourish_presets_v1");
@@ -229,7 +311,7 @@ export default function App() {
   useEffect(()=>{if(!showForm){stopCamera();setCameraStep("idle");setCapturedImage(null);setAnalysisError("");}},[showForm,stopCamera]);
 
   async function startCamera(){
-    setAnalysisError(""); setCameraStep("preview");
+    setAnalysisError("");setCameraStep("preview");
     try{
       const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"},audio:false});
       streamRef.current=s;
@@ -259,7 +341,7 @@ export default function App() {
         body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,
           messages:[{role:"user",content:[
             {type:"image",source:{type:"base64",media_type:mediaType,data:base64}},
-            {type:"text",text:`Analyze this food photo. Return ONLY valid JSON, no markdown:\n{"name":"short meal name","protein":number,"carbs":number,"fat":number,"notes":"brief note"}`}
+            {type:"text",text:`Analyze this food photo. Return ONLY valid JSON:\n{"name":"short meal name","protein":number,"carbs":number,"fat":number,"notes":"brief note"}`}
           ]}]})
       });
       const data=await res.json();
@@ -271,10 +353,11 @@ export default function App() {
     }catch{setAnalysisError("Could not analyse. Fill macros manually.");setCameraStep("done");}
   }
 
-  // ── Meal helpers ──────────────────────────────────────────────────────────
+  // ── Meals ─────────────────────────────────────────────────────────────────
   const todayMeals=allData[selDate]||[];
   const totals=getDayTotals(todayMeals);
   const calPct=Math.min((totals.calories/CAL_GOAL)*100,100);
+  const streak=calcStreak(allData);
 
   function updateMacro(key,val){setForm(f=>{const n={...f,[key]:val};n.calories=calcCalories(n.protein,n.carbs,n.fat);return n;});}
   function openAdd(){setForm(EMPTY_FORM);setEditId(null);setPresetSearch("");setCameraStep("idle");setCapturedImage(null);setAnalysisError("");setShowForm(true);}
@@ -293,10 +376,10 @@ export default function App() {
   }
   function deleteMeal(id){const u={...allData};u[selDate]=(u[selDate]||[]).filter(m=>m.id!==id);setAllData(u);}
 
-  // ── Preset helpers ────────────────────────────────────────────────────────
+  // ── Presets ───────────────────────────────────────────────────────────────
   function savePreset(){
     if(!presetForm.name.trim())return;
-    if(editPresetId)setPresets(ps=>ps.map(p=>p.id===editPresetId?{...presetForm,id:editPresetId}:p));
+    if(editPresetId) setPresets(ps=>ps.map(p=>p.id===editPresetId?{...presetForm,id:editPresetId}:p));
     else setPresets(ps=>[...ps,{...presetForm,id:"u"+generateId()}]);
     setPresetForm(EMPTY_PRESET);setEditPresetId(null);
   }
@@ -306,11 +389,11 @@ export default function App() {
   const filteredPresets=presets.filter(p=>!presetSearch||p.name.toLowerCase().includes(presetSearch.toLowerCase()));
   const libFiltered=presets.filter(p=>!libSearch||p.name.toLowerCase().includes(libSearch.toLowerCase()));
 
-  // ── Weight helpers ────────────────────────────────────────────────────────
-  const sortedWeight = [...weightLog].sort((a,b)=>a.date.localeCompare(b.date));
-  const latestWeight = sortedWeight.length>0 ? sortedWeight[sortedWeight.length-1].weight : null;
-  const firstWeight  = sortedWeight.length>0 ? sortedWeight[0].weight : null;
-  const weightChange = (latestWeight&&firstWeight) ? Math.round((latestWeight-firstWeight)*10)/10 : null;
+  // ── Weight ────────────────────────────────────────────────────────────────
+  const sortedWeight=[...weightLog].sort((a,b)=>a.date.localeCompare(b.date));
+  const latestWeight=sortedWeight.length>0?sortedWeight[sortedWeight.length-1].weight:null;
+  const firstWeight =sortedWeight.length>0?sortedWeight[0].weight:null;
+  const weightChange=(latestWeight&&firstWeight)?Math.round((latestWeight-firstWeight)*10)/10:null;
 
   function saveWeight(){
     if(!weightInput||isNaN(Number(weightInput)))return;
@@ -319,28 +402,23 @@ export default function App() {
       setWeightLog(wl=>wl.map(e=>e.id===editWeightId?{...e,weight:w,date:weightDate}:e));
       setEditWeightId(null);
     } else {
-      // Replace if same date exists
       const exists=weightLog.find(e=>e.date===weightDate);
-      if(exists){
-        setWeightLog(wl=>wl.map(e=>e.date===weightDate?{...e,weight:w}:e));
-      } else {
-        setWeightLog(wl=>[...wl,{id:generateId(),date:weightDate,weight:w}]);
-      }
+      if(exists) setWeightLog(wl=>wl.map(e=>e.date===weightDate?{...e,weight:w}:e));
+      else setWeightLog(wl=>[...wl,{id:generateId(),date:weightDate,weight:w}]);
     }
-    setWeightInput("");
-    setWeightDate(today);
+    setWeightInput("");setWeightDate(today);
   }
   function deleteWeight(id){setWeightLog(wl=>wl.filter(e=>e.id!==id));}
   function startEditWeight(e){setEditWeightId(e.id);setWeightInput(String(e.weight));setWeightDate(e.date);}
   function cancelEditWeight(){setEditWeightId(null);setWeightInput("");setWeightDate(today);}
 
-  // ── Calendar helpers ──────────────────────────────────────────────────────
+  // ── Calendar ──────────────────────────────────────────────────────────────
   const calGrid=buildCalendarGrid(calMonth+"-01");
   function prevMonth(){const [y,m]=calMonth.split("-").map(Number);const d=new Date(y,m-2,1);setCalMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);}
   function nextMonth(){const [y,m]=calMonth.split("-").map(Number);const d=new Date(y,m,1);setCalMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);}
   const monthLabel=new Date(calMonth+"-01").toLocaleDateString("en-US",{month:"long",year:"numeric"});
 
-  // ── Report helpers ────────────────────────────────────────────────────────
+  // ── Report ────────────────────────────────────────────────────────────────
   function getReportDates(){
     if(reportRange==="custom"){
       if(!reportFrom||!reportTo)return[];
@@ -357,89 +435,138 @@ export default function App() {
   const reportTotals=reportDates.reduce((a,d)=>{const t=getDayTotals(allData[d]||[]);return{calories:a.calories+t.calories,protein:a.protein+t.protein,carbs:a.carbs+t.carbs,fat:a.fat+t.fat};},{calories:0,protein:0,carbs:0,fat:0});
   const avgCalories=reportDaysWithData.length>0?Math.round(reportTotals.calories/reportDaysWithData.length):0;
 
-  // ─────────────────────────────────────────────────────────────────────────
-  return (
-    <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#f8f0ff 0%,#e8f4fd 50%,#f0fff4 100%)",fontFamily:"Georgia,serif"}}>
+  // ─── Dark modal base ──────────────────────────────────────────────────────
+  const modalBase = {background:C.bg1,borderRadius:"24px 24px 0 0",padding:"22px 18px 36px",
+    width:"100%",maxWidth:480,boxShadow:"0 -12px 60px rgba(0,0,0,0.8)",
+    maxHeight:"92vh",overflowY:"auto",border:`1px solid ${C.border}`,borderBottom:"none"};
 
-      {/* Header */}
-      <div style={{background:"rgba(255,255,255,0.9)",backdropFilter:"blur(12px)",borderBottom:"1.5px solid #e2d9f3",padding:"12px 16px 10px",position:"sticky",top:0,zIndex:50,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+  const darkInp = {...inp,background:C.bg2,border:`1px solid ${C.border}`,color:C.text};
+  const darkInpSm = {...darkInp,fontSize:13,padding:"10px 12px",marginBottom:0};
+
+  // ─────────────────────────────────────────────────────────────────────────
+  return(
+    <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'SF Pro Display',system-ui,-apple-system,sans-serif",color:C.text}}>
+
+      {/* ── Header ── */}
+      <div style={{background:"rgba(13,13,20,0.95)",backdropFilter:"blur(20px)",
+        borderBottom:`1px solid ${C.border}`,padding:"14px 18px 12px",
+        position:"sticky",top:0,zIndex:50,
+        display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div>
-          <div style={{fontSize:19,fontWeight:700,color:"#3d1f6b"}}>🍽 Nourish</div>
-          <div style={{fontSize:9,color:"#9b87c2",letterSpacing:"0.08em",textTransform:"uppercase"}}>Daily Meals Tracker</div>
+          <div style={{fontSize:20,fontWeight:800,letterSpacing:"-0.5px",
+            background:"linear-gradient(135deg,#a78bfa,#7c3aed)",
+            WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>
+            🍽 Nourish
+          </div>
+          <div style={{fontSize:10,color:C.textSub,letterSpacing:"0.12em",textTransform:"uppercase",marginTop:1}}>
+            {getGreeting()}
+          </div>
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:7}}>
-          <button onClick={()=>setShowLibrary(true)} style={{padding:"5px 10px",borderRadius:9,border:"1.5px solid #d0c4f0",background:"white",color:"#6b5b9e",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>📚 Foods</button>
-          <button onClick={()=>setShowReport(true)} style={{padding:"5px 10px",borderRadius:9,border:"1.5px solid #d0c4f0",background:"white",color:"#6b5b9e",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>📊 Report</button>
-          <input type="date" value={selDate} onChange={e=>setSelDate(e.target.value)} style={{border:"1.5px solid #d0c4f0",borderRadius:9,padding:"4px 8px",fontSize:11,color:"#3d1f6b",background:"white",outline:"none",fontFamily:"inherit"}}/>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <button onClick={()=>setShowLibrary(true)} style={{padding:"6px 11px",borderRadius:9,border:`1px solid ${C.border}`,background:C.bg2,color:C.textSub,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>📚</button>
+          <button onClick={()=>setShowReport(true)} style={{padding:"6px 11px",borderRadius:9,border:`1px solid ${C.border}`,background:C.bg2,color:C.textSub,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>📊</button>
+          <input type="date" value={selDate} onChange={e=>setSelDate(e.target.value)}
+            style={{border:`1px solid ${C.border}`,borderRadius:9,padding:"5px 9px",fontSize:11,
+              color:C.textSub,background:C.bg2,outline:"none",fontFamily:"inherit"}}/>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div style={{display:"flex",padding:"11px 16px 0",gap:5,overflowX:"auto"}}>
-        {[["log","📋 Log"],["calendar","📅 Calendar"],["weight","⚖️ Weight"]].map(([tab,label])=>(
-          <button key={tab} onClick={()=>setActiveTab(tab)} style={{padding:"6px 14px",borderRadius:20,border:"1.5px solid",borderColor:activeTab===tab?"#8b5cf6":"#d0c4f0",background:activeTab===tab?"#8b5cf6":"white",color:activeTab===tab?"white":"#6b5b9e",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0}}>{label}</button>
+      {/* ── Tabs ── */}
+      <div style={{display:"flex",padding:"12px 18px 0",gap:6,overflowX:"auto"}}>
+        {[["log","Log"],["calendar","Calendar"],["weight","Weight"]].map(([tab,label])=>(
+          <button key={tab} onClick={()=>setActiveTab(tab)} style={{
+            padding:"7px 16px",borderRadius:20,border:`1px solid ${activeTab===tab?C.accent:C.border}`,
+            background:activeTab===tab?C.accentDim:"transparent",
+            color:activeTab===tab?C.text:C.textSub,
+            fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",
+            whiteSpace:"nowrap",flexShrink:0,
+            boxShadow:activeTab===tab?`0 0 14px ${C.accentGlow}`:"none",
+            transition:"all 0.2s",
+          }}>{label}</button>
         ))}
       </div>
 
-      {/* ══ DAILY LOG ══ */}
+      {/* ══════════════════ DAILY LOG ══════════════════ */}
       {activeTab==="log"&&(
-        <div style={{padding:"13px 16px 80px"}}>
-          <div style={{fontSize:13,color:"#6b5b9e",fontStyle:"italic",marginBottom:11}}>{selDate===today?"Today — ":""}{formatDateLong(selDate)}</div>
-          <div style={{background:"white",borderRadius:16,padding:"14px 16px",boxShadow:"0 4px 20px rgba(139,92,246,0.08)",marginBottom:14,display:"flex",gap:16,alignItems:"center"}}>
-            <div style={{position:"relative",width:66,height:66,flexShrink:0}}>
-              <svg width="66" height="66" viewBox="0 0 66 66">
-                <circle cx="33" cy="33" r="25" fill="none" stroke="#f0e8ff" strokeWidth="7"/>
-                <circle cx="33" cy="33" r="25" fill="none" stroke="#8b5cf6" strokeWidth="7" strokeDasharray={`${calPct*1.571} 157.1`} strokeLinecap="round" transform="rotate(-90 33 33)" style={{transition:"stroke-dasharray 0.6s ease"}}/>
-              </svg>
-              <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
-                <span style={{fontSize:13,fontWeight:700,color:"#3d1f6b",lineHeight:1}}>{totals.calories}</span>
-                <span style={{fontSize:8,color:"#9b87c2"}}>kcal</span>
+        <div style={{padding:"14px 18px 90px"}}>
+
+          {/* Streak */}
+          <StreakCard streak={streak}/>
+
+          {/* Calorie ring + macros */}
+          <div style={{background:C.bg1,border:`1px solid ${C.border}`,borderRadius:20,
+            padding:"20px",marginBottom:14,
+            boxShadow:`0 4px 30px rgba(0,0,0,0.4)`}}>
+            <div style={{display:"flex",gap:20,alignItems:"center",marginBottom:16}}>
+              <CalRing calories={totals.calories}/>
+              <div style={{flex:1}}>
+                <div style={{fontSize:11,color:C.textSub,fontWeight:600,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:12}}>
+                  {selDate===today?"Today":"Selected Day"}
+                </div>
+                <MacroBar label="Protein" val={totals.protein} goal={150} color={C.red}/>
+                <MacroBar label="Carbs"   val={totals.carbs}   goal={250} color={C.green}/>
+                <MacroBar label="Fat"     val={totals.fat}     goal={65}  color={C.amber}/>
               </div>
             </div>
-            <div style={{flex:1,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"6px 8px"}}>
-              {[{l:"Protein",v:totals.protein,c:"#FF6B6B"},{l:"Carbs",v:totals.carbs,c:"#4ECDC4"},{l:"Fat",v:totals.fat,c:"#FFD93D"}].map(m=>(
-                <div key={m.l} style={{textAlign:"center"}}>
-                  <div style={{fontSize:14,fontWeight:700,color:m.c}}>{m.v}<span style={{fontSize:9}}>g</span></div>
-                  <div style={{fontSize:9,color:"#9b87c2",textTransform:"uppercase",letterSpacing:"0.04em"}}>{m.l}</div>
-                </div>
-              ))}
-              <div style={{gridColumn:"1/-1",fontSize:10,color:"#b8a9d9",textAlign:"center"}}>Goal {CAL_GOAL} kcal · {Math.round(calPct)}% reached</div>
-            </div>
           </div>
+
+          {/* Meals by type */}
           {MEAL_TYPES.map(type=>{
             const meals=todayMeals.filter(m=>m.type===type);
+            const color=mealColor[type];
             return(
-              <div key={type} style={{marginBottom:11}}>
-                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,color:"#3d1f6b",fontWeight:700,fontSize:12}}>{mealEmoji[type]} {type} <span style={{fontSize:10,color:"#9b87c2",fontWeight:400,fontStyle:"italic"}}>{meals.length>0?`${meals.reduce((a,m)=>a+(Number(m.calories)||0),0)} kcal`:"nothing yet"}</span></div>
+              <div key={type} style={{marginBottom:10}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                  <div style={{width:3,height:16,borderRadius:2,background:color,boxShadow:`0 0 6px ${color}`}}/>
+                  <span style={{fontSize:12,fontWeight:700,color:C.text,letterSpacing:"0.02em"}}>{mealEmoji[type]} {type}</span>
+                  <span style={{fontSize:10,color:C.textSub,fontWeight:400,marginLeft:2}}>
+                    {meals.length>0?`${meals.reduce((a,m)=>a+(Number(m.calories)||0),0)} kcal`:"—"}
+                  </span>
+                </div>
                 {meals.map(meal=>(
-                  <div key={meal.id} style={{background:pastelBg[type.toLowerCase()]||"#f9f6ff",border:"1.5px solid #e2d9f3",borderRadius:11,padding:"8px 11px",marginBottom:4,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div key={meal.id} style={{background:C.bg1,border:`1px solid ${C.border}`,
+                    borderRadius:14,padding:"11px 14px",marginBottom:5,
+                    display:"flex",justifyContent:"space-between",alignItems:"center",
+                    transition:"border-color 0.2s"}}>
                     <div>
-                      <div style={{fontWeight:600,color:"#2d1b55",fontSize:12}}>{meal.name}</div>
-                      <div style={{fontSize:10,color:"#7b6aab",marginTop:2}}>{meal.calories?`${meal.calories} kcal`:""}{meal.protein?` · ${meal.protein}g P`:""}{meal.carbs?` · ${meal.carbs}g C`:""}{meal.fat?` · ${meal.fat}g F`:""}{meal.notes?` · ${meal.notes}`:""}</div>
+                      <div style={{fontWeight:600,color:C.text,fontSize:13}}>{meal.name}</div>
+                      <div style={{fontSize:10,color:C.textSub,marginTop:3,display:"flex",gap:8}}>
+                        {meal.calories&&<span style={{color:C.accent}}>{meal.calories} kcal</span>}
+                        {meal.protein&&<span style={{color:C.red}}>{meal.protein}g P</span>}
+                        {meal.carbs&&<span style={{color:C.green}}>{meal.carbs}g C</span>}
+                        {meal.fat&&<span style={{color:C.amber}}>{meal.fat}g F</span>}
+                      </div>
                     </div>
-                    <div style={{display:"flex",gap:3}}>
-                      <button onClick={()=>openEdit(meal)} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,padding:3}}>✏️</button>
-                      <button onClick={()=>deleteMeal(meal.id)} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,padding:3}}>🗑</button>
+                    <div style={{display:"flex",gap:4}}>
+                      <button onClick={()=>openEdit(meal)} style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:8,cursor:"pointer",fontSize:11,padding:"5px 8px",color:C.textSub}}>✏️</button>
+                      <button onClick={()=>deleteMeal(meal.id)} style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:8,cursor:"pointer",fontSize:11,padding:"5px 8px",color:C.textSub}}>🗑</button>
                     </div>
                   </div>
                 ))}
+                {meals.length===0&&(
+                  <div style={{border:`1px dashed ${C.border}`,borderRadius:14,padding:"12px 14px",
+                    fontSize:11,color:C.textMuted,fontStyle:"italic"}}>Nothing logged yet</div>
+                )}
               </div>
             );
           })}
-          {todayMeals.length===0&&<div style={{textAlign:"center",color:"#b8a9d9",fontSize:13,fontStyle:"italic",marginTop:28,padding:20}}>No meals logged yet.<br/>Tap + to add your first meal!</div>}
         </div>
       )}
 
-      {/* ══ CALENDAR ══ */}
+      {/* ══════════════════ CALENDAR ══════════════════ */}
       {activeTab==="calendar"&&(
-        <div style={{padding:"13px 16px 80px"}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-            <button onClick={prevMonth} style={{background:"none",border:"1.5px solid #d0c4f0",borderRadius:9,padding:"5px 12px",cursor:"pointer",color:"#6b5b9e",fontSize:14,fontFamily:"inherit"}}>‹</button>
-            <div style={{fontWeight:700,color:"#3d1f6b",fontSize:15}}>{monthLabel}</div>
-            <button onClick={nextMonth} style={{background:"none",border:"1.5px solid #d0c4f0",borderRadius:9,padding:"5px 12px",cursor:"pointer",color:"#6b5b9e",fontSize:14,fontFamily:"inherit"}}>›</button>
+        <div style={{padding:"14px 18px 90px"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+            <button onClick={prevMonth} style={{background:C.bg1,border:`1px solid ${C.border}`,borderRadius:10,
+              padding:"7px 14px",cursor:"pointer",color:C.text,fontSize:14,fontFamily:"inherit"}}>‹</button>
+            <div style={{fontWeight:700,color:C.text,fontSize:15}}>{monthLabel}</div>
+            <button onClick={nextMonth} style={{background:C.bg1,border:`1px solid ${C.border}`,borderRadius:10,
+              padding:"7px 14px",cursor:"pointer",color:C.text,fontSize:14,fontFamily:"inherit"}}>›</button>
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3,marginBottom:3}}>
-            {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=><div key={d} style={{textAlign:"center",fontSize:10,color:"#9b87c2",fontWeight:600,padding:"3px 0"}}>{d}</div>)}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3,marginBottom:4}}>
+            {["S","M","T","W","T","F","S"].map((d,i)=>(
+              <div key={i} style={{textAlign:"center",fontSize:10,color:C.textMuted,fontWeight:600,padding:"3px 0"}}>{d}</div>
+            ))}
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>
             {calGrid.map((dateKey,i)=>{
@@ -448,99 +575,133 @@ export default function App() {
               const t=getDayTotals(meals);
               const isToday=dateKey===today,isSelected=dateKey===selDate,hasMeals=meals.length>0;
               const pct=Math.min(t.calories/CAL_GOAL,1);
-              const ringColor=pct>1?"#FF6B6B":pct>0.6?"#4ECDC4":"#8b5cf6";
+              const ringColor=pct>1?C.red:pct>0.6?C.green:C.accent;
               return(
-                <div key={dateKey} onClick={()=>{setSelDate(dateKey);setActiveTab("log");}} style={{background:isSelected?"#8b5cf6":isToday?"#f0ebff":"white",border:`1.5px solid ${isSelected?"#8b5cf6":isToday?"#c4a8f0":"#e2d9f3"}`,borderRadius:10,padding:"6px 4px 5px",cursor:"pointer",minHeight:56,display:"flex",flexDirection:"column",alignItems:"center",gap:2,transition:"all 0.15s"}}>
-                  <div style={{fontSize:12,fontWeight:isToday||isSelected?700:500,color:isSelected?"white":isToday?"#8b5cf6":"#3d1f6b"}}>{Number(dateKey.slice(8))}</div>
-                  {hasMeals&&(<>
-                    <svg width="28" height="28" viewBox="0 0 28 28">
-                      <circle cx="14" cy="14" r="10" fill="none" stroke={isSelected?"rgba(255,255,255,0.3)":"#f0e8ff"} strokeWidth="3.5"/>
-                      <circle cx="14" cy="14" r="10" fill="none" stroke={isSelected?"white":ringColor} strokeWidth="3.5" strokeDasharray={`${pct*62.8} 62.8`} strokeLinecap="round" transform="rotate(-90 14 14)"/>
-                    </svg>
-                    <div style={{fontSize:9,color:isSelected?"rgba(255,255,255,0.85)":"#8b5cf6",fontWeight:600,lineHeight:1}}>{t.calories}</div>
-                    <div style={{fontSize:8,color:isSelected?"rgba(255,255,255,0.6)":"#b8a9d9",lineHeight:1}}>kcal</div>
-                  </>)}
-                  {!hasMeals&&<div style={{width:6,height:6,borderRadius:"50%",background:isSelected?"rgba(255,255,255,0.4)":"#e8e0f8",marginTop:2}}/>}
+                <div key={dateKey} onClick={()=>{setSelDate(dateKey);setActiveTab("log");}}
+                  style={{background:isSelected?C.accentDim:isToday?C.bg2:C.bg1,
+                    border:`1px solid ${isSelected?C.accent:isToday?C.borderHi:C.border}`,
+                    borderRadius:10,padding:"6px 3px 5px",cursor:"pointer",
+                    minHeight:54,display:"flex",flexDirection:"column",alignItems:"center",gap:2,
+                    boxShadow:isSelected?`0 0 14px ${C.accentGlow}`:"none",
+                    transition:"all 0.15s"}}>
+                  <div style={{fontSize:11,fontWeight:isToday||isSelected?700:400,
+                    color:isSelected?C.text:isToday?C.accent:C.textSub}}>
+                    {Number(dateKey.slice(8))}
+                  </div>
+                  {hasMeals&&(
+                    <>
+                      <svg width="26" height="26" viewBox="0 0 26 26">
+                        <circle cx="13" cy="13" r="9" fill="none" stroke={C.bg3} strokeWidth="3"/>
+                        <circle cx="13" cy="13" r="9" fill="none" stroke={ringColor} strokeWidth="3"
+                          strokeDasharray={`${pct*56.5} 56.5`} strokeLinecap="round"
+                          transform="rotate(-90 13 13)"
+                          style={{filter:`drop-shadow(0 0 3px ${ringColor})`}}/>
+                      </svg>
+                      <div style={{fontSize:8,color:isSelected?C.text:C.accent,fontWeight:600,lineHeight:1}}>{t.calories}</div>
+                    </>
+                  )}
+                  {!hasMeals&&<div style={{width:5,height:5,borderRadius:"50%",background:C.bg3,marginTop:3}}/>}
                 </div>
               );
             })}
           </div>
-          <div style={{display:"flex",gap:12,marginTop:12,justifyContent:"center",flexWrap:"wrap"}}>
-            {[["#8b5cf6","On track"],["#4ECDC4","60–100%"],["#FF6B6B","Over goal"],["#e8e0f8","No entries"]].map(([c,l])=>(
-              <div key={l} style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:10,height:10,borderRadius:"50%",background:c}}/><span style={{fontSize:10,color:"#9b87c2"}}>{l}</span></div>
+          <div style={{display:"flex",gap:12,marginTop:14,justifyContent:"center",flexWrap:"wrap"}}>
+            {[[C.accent,"On track"],[C.green,"60–100%"],[C.red,"Over goal"],[C.bg3,"No entries"]].map(([c,l])=>(
+              <div key={l} style={{display:"flex",alignItems:"center",gap:5}}>
+                <div style={{width:8,height:8,borderRadius:"50%",background:c,boxShadow:`0 0 5px ${c}`}}/>
+                <span style={{fontSize:10,color:C.textSub}}>{l}</span>
+              </div>
             ))}
           </div>
           {selDate&&(
-            <div style={{marginTop:16,background:"white",borderRadius:14,padding:"13px 14px",boxShadow:"0 2px 12px rgba(139,92,246,0.08)"}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                <div style={{fontWeight:700,color:"#3d1f6b",fontSize:13}}>{selDate===today?"Today — ":""}{formatDateLong(selDate)}</div>
-                <button onClick={()=>setActiveTab("log")} style={{background:"#8b5cf6",border:"none",borderRadius:8,padding:"4px 10px",color:"white",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>View →</button>
+            <div style={{marginTop:14,background:C.bg1,borderRadius:16,padding:"14px",border:`1px solid ${C.border}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div style={{fontWeight:700,color:C.text,fontSize:13}}>{selDate===today?"Today — ":""}{formatDateLong(selDate)}</div>
+                <button onClick={()=>setActiveTab("log")} style={{background:C.accentDim,border:"none",borderRadius:8,
+                  padding:"5px 12px",color:C.text,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",
+                  boxShadow:`0 0 10px ${C.accentGlow}`}}>View →</button>
               </div>
-              {(allData[selDate]||[]).length===0?<div style={{fontSize:12,color:"#b8a9d9",fontStyle:"italic"}}>No meals logged.</div>:(allData[selDate]||[]).map(m=>(
-                <div key={m.id} style={{display:"flex",justifyContent:"space-between",borderBottom:"1px solid #f0ebff",padding:"4px 0",fontSize:12}}>
-                  <span style={{color:"#3d1f6b"}}>{mealEmoji[m.type]} {m.name}</span>
-                  <span style={{color:"#8b5cf6",fontWeight:600}}>{m.calories||"—"} kcal</span>
-                </div>
-              ))}
+              {(allData[selDate]||[]).length===0
+                ?<div style={{fontSize:12,color:C.textMuted,fontStyle:"italic"}}>No meals logged.</div>
+                :(allData[selDate]||[]).map(m=>(
+                  <div key={m.id} style={{display:"flex",justifyContent:"space-between",
+                    borderBottom:`1px solid ${C.border}`,padding:"6px 0",fontSize:12}}>
+                    <span style={{color:C.textSub}}>{mealEmoji[m.type]} {m.name}</span>
+                    <span style={{color:C.accent,fontWeight:600}}>{m.calories||"—"} kcal</span>
+                  </div>
+                ))
+              }
             </div>
           )}
         </div>
       )}
 
-      {/* ══ WEIGHT TRACKER ══ */}
+      {/* ══════════════════ WEIGHT ══════════════════ */}
       {activeTab==="weight"&&(
-        <div style={{padding:"13px 16px 80px"}}>
+        <div style={{padding:"14px 18px 90px"}}>
 
-          {/* Stats row */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:9,marginBottom:14}}>
+          {/* Stats */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:14}}>
             {[
-              {label:"Current",val:latestWeight?`${latestWeight}`:"-",unit:latestWeight?"kg":"",color:"#8b5cf6"},
-              {label:"Change",val:weightChange!==null?(weightChange>0?`+${weightChange}`:String(weightChange)):"-",unit:weightChange!==null?"kg":"",color:weightChange===null?"#9b87c2":weightChange<0?"#4ECDC4":weightChange>0?"#FF6B6B":"#9b87c2"},
-              {label:"Goal",val:weightGoal?`${weightGoal}`:"-",unit:weightGoal?"kg":"",color:"#FFD93D"},
+              {label:"Current",val:latestWeight?`${latestWeight}`:"-",unit:latestWeight?"kg":"",color:C.accent},
+              {label:"Change",val:weightChange!==null?(weightChange>0?`+${weightChange}`:String(weightChange)):"-",unit:weightChange!==null?"kg":"",color:weightChange===null?C.textSub:weightChange<0?C.green:weightChange>0?C.red:C.textSub},
+              {label:"Goal",val:weightGoal?`${weightGoal}`:"-",unit:weightGoal?"kg":"",color:C.amber},
             ].map(s=>(
-              <div key={s.label} style={{background:"white",borderRadius:13,padding:"12px 10px",boxShadow:"0 2px 12px rgba(139,92,246,0.08)",textAlign:"center"}}>
-                <div style={{fontSize:20,fontWeight:700,color:s.color,lineHeight:1}}>{s.val}<span style={{fontSize:11}}>{s.unit}</span></div>
-                <div style={{fontSize:10,color:"#9b87c2",marginTop:3}}>{s.label}</div>
+              <div key={s.label} style={{background:C.bg1,border:`1px solid ${C.border}`,borderRadius:14,
+                padding:"13px 10px",textAlign:"center",
+                boxShadow:s.val!=="-"?`0 0 20px ${s.color}22`:"none"}}>
+                <div style={{fontSize:22,fontWeight:800,color:s.color,lineHeight:1}}>
+                  {s.val}<span style={{fontSize:11,fontWeight:500}}>{s.unit}</span>
+                </div>
+                <div style={{fontSize:10,color:C.textSub,marginTop:4,letterSpacing:"0.06em",textTransform:"uppercase"}}>{s.label}</div>
               </div>
             ))}
           </div>
 
-          {/* Goal setter */}
-          <div style={{background:"white",borderRadius:13,padding:"12px 14px",marginBottom:14,boxShadow:"0 2px 12px rgba(139,92,246,0.06)",display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:13,color:"#6b5b9e",fontWeight:600}}>🎯 Weight Goal</span>
+          {/* Goal input */}
+          <div style={{background:C.bg1,border:`1px solid ${C.border}`,borderRadius:14,
+            padding:"13px 16px",marginBottom:12,display:"flex",alignItems:"center",gap:12}}>
+            <span style={{fontSize:13,color:C.textSub,fontWeight:600,whiteSpace:"nowrap"}}>🎯 Goal</span>
             <input type="number" min="0" step="0.1" placeholder="e.g. 75" value={weightGoal}
               onChange={e=>setWeightGoal(e.target.value)}
-              style={{...smallInput,flex:1,marginBottom:0}}/>
-            <span style={{fontSize:12,color:"#9b87c2"}}>kg</span>
+              style={{...darkInpSm,flex:1,marginBottom:0}}/>
+            <span style={{fontSize:12,color:C.textMuted}}>kg</span>
           </div>
 
-          {/* Log entry form */}
-          <div style={{background:"#faf6ff",border:"1.5px solid #d0c4f0",borderRadius:13,padding:"13px 14px",marginBottom:14}}>
-            <div style={{fontSize:12,fontWeight:700,color:"#3d1f6b",marginBottom:12}}>
+          {/* Log form */}
+          <div style={{background:C.bg1,border:`1px solid ${C.borderHi}`,borderRadius:16,
+            padding:"16px",marginBottom:14,
+            boxShadow:`0 0 20px ${C.accentGlow}`}}>
+            <div style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:14,letterSpacing:"0.02em"}}>
               {editWeightId?"✏️ Edit Entry":"➕ Log Weight"}
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-              <div style={{display:"flex",flexDirection:"column",gap:5}}>
-                <div style={{fontSize:10,fontWeight:600,color:"#9b87c2",textTransform:"uppercase",letterSpacing:"0.05em"}}>Date</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                <div style={{fontSize:10,fontWeight:600,color:C.textSub,textTransform:"uppercase",letterSpacing:"0.08em"}}>Date</div>
                 <input type="date" value={weightDate} onChange={e=>setWeightDate(e.target.value)}
-                  style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1.5px solid #d0c4f0",
-                    fontSize:13,color:"#3d1f6b",background:"white",outline:"none",
-                    fontFamily:"Georgia,serif",boxSizing:"border-box",height:40}}/>
+                  style={{...darkInpSm,width:"100%",boxSizing:"border-box",height:42}}/>
               </div>
-              <div style={{display:"flex",flexDirection:"column",gap:5}}>
-                <div style={{fontSize:10,fontWeight:600,color:"#9b87c2",textTransform:"uppercase",letterSpacing:"0.05em"}}>Weight (kg)</div>
-                <input type="number" min="0" step="0.1" placeholder="e.g. 78.5" value={weightInput}
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                <div style={{fontSize:10,fontWeight:600,color:C.textSub,textTransform:"uppercase",letterSpacing:"0.08em"}}>Weight (kg)</div>
+                <input type="number" min="0" step="0.1" placeholder="78.5" value={weightInput}
                   onChange={e=>setWeightInput(e.target.value)}
-                  style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1.5px solid ${weightInput?"#8b5cf6":"#d0c4f0"}`,
-                    fontSize:13,color:"#3d1f6b",background:"white",outline:"none",
-                    fontFamily:"Georgia,serif",boxSizing:"border-box",height:40}}/>
+                  style={{...darkInpSm,width:"100%",boxSizing:"border-box",height:42,
+                    borderColor:weightInput?C.accent:C.border,
+                    boxShadow:weightInput?`0 0 10px ${C.accentGlow}`:"none"}}/>
               </div>
             </div>
             <div style={{display:"flex",gap:8}}>
               {editWeightId&&(
-                <button onClick={cancelEditWeight} style={{flex:1,padding:"10px",borderRadius:10,border:"1.5px solid #d0c4f0",background:"white",color:"#6b5b9e",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+                <button onClick={cancelEditWeight} style={{flex:1,padding:"11px",borderRadius:11,
+                  border:`1px solid ${C.border}`,background:"transparent",color:C.textSub,
+                  fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
               )}
-              <button onClick={saveWeight} style={{flex:2,padding:"10px",borderRadius:10,border:"none",background:weightInput?"linear-gradient(135deg,#8b5cf6,#6366f1)":"#d0c4f0",color:"white",fontSize:12,fontWeight:700,cursor:weightInput?"pointer":"default",fontFamily:"inherit"}}>
+              <button onClick={saveWeight} style={{flex:2,padding:"11px",borderRadius:11,border:"none",
+                background:weightInput?`linear-gradient(135deg,${C.accent},${C.accentDim})`:"#1e1e2e",
+                color:weightInput?C.text:C.textMuted,fontSize:12,fontWeight:700,
+                cursor:weightInput?"pointer":"default",fontFamily:"inherit",
+                boxShadow:weightInput?`0 0 16px ${C.accentGlow}`:"none",
+                transition:"all 0.2s"}}>
                 {editWeightId?"Save Changes":"Log Weight"}
               </button>
             </div>
@@ -548,50 +709,57 @@ export default function App() {
 
           {/* Chart */}
           {sortedWeight.length>=2&&(
-            <div style={{background:"white",borderRadius:13,padding:"14px",marginBottom:14,boxShadow:"0 2px 12px rgba(139,92,246,0.08)"}}>
-              <div style={{fontSize:12,fontWeight:700,color:"#3d1f6b",marginBottom:10}}>📈 Weight Trend</div>
+            <div style={{background:C.bg1,border:`1px solid ${C.border}`,borderRadius:16,
+              padding:"16px",marginBottom:14}}>
+              <div style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:12}}>📈 Trend</div>
               <WeightChart entries={sortedWeight}/>
               {weightGoal&&latestWeight&&(
-                <div style={{marginTop:8,fontSize:11,color:"#9b87c2",textAlign:"center"}}>
-                  {Math.abs(Math.round((latestWeight-Number(weightGoal))*10)/10)} kg {latestWeight>Number(weightGoal)?"to lose":"below goal"} · goal {weightGoal} kg
+                <div style={{marginTop:10,fontSize:11,color:C.textSub,textAlign:"center"}}>
+                  <span style={{color:latestWeight>Number(weightGoal)?C.red:C.green,fontWeight:600}}>
+                    {Math.abs(Math.round((latestWeight-Number(weightGoal))*10)/10)} kg
+                  </span>
+                  {" "}{latestWeight>Number(weightGoal)?"to reach goal":"below goal"} · target {weightGoal} kg
                 </div>
               )}
             </div>
           )}
           {sortedWeight.length===1&&(
-            <div style={{textAlign:"center",color:"#b8a9d9",fontSize:12,fontStyle:"italic",padding:"10px 0"}}>Log one more entry to see your trend chart.</div>
+            <div style={{textAlign:"center",color:C.textSub,fontSize:12,fontStyle:"italic",padding:"10px 0"}}>
+              Log one more entry to see your trend.
+            </div>
           )}
 
-          {/* Entry list */}
+          {/* List */}
           {sortedWeight.length>0&&(
-            <div style={{background:"white",borderRadius:13,padding:"13px 14px",boxShadow:"0 2px 12px rgba(139,92,246,0.06)"}}>
-              <div style={{fontSize:12,fontWeight:700,color:"#3d1f6b",marginBottom:10}}>📋 All Entries</div>
+            <div style={{background:C.bg1,border:`1px solid ${C.border}`,borderRadius:16,padding:"14px"}}>
+              <div style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:12}}>All Entries</div>
               {[...sortedWeight].reverse().map((e,i,arr)=>{
                 const prev=arr[i+1];
                 const diff=prev?Math.round((e.weight-prev.weight)*10)/10:null;
                 return(
-                  <div key={e.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid #f0ebff"}}>
+                  <div key={e.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+                    padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
                     <div>
-                      <div style={{fontSize:13,fontWeight:600,color:"#2d1b55"}}>{e.weight} kg</div>
-                      <div style={{fontSize:10,color:"#9b87c2"}}>{formatDateLong(e.date)}</div>
+                      <div style={{fontSize:14,fontWeight:700,color:C.text}}>{e.weight} <span style={{fontSize:11,color:C.textSub}}>kg</span></div>
+                      <div style={{fontSize:10,color:C.textSub}}>{formatDateLong(e.date)}</div>
                     </div>
-                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
                       {diff!==null&&(
-                        <span style={{fontSize:11,fontWeight:600,color:diff<0?"#4ECDC4":diff>0?"#FF6B6B":"#9b87c2"}}>
+                        <span style={{fontSize:12,fontWeight:700,
+                          color:diff<0?C.green:diff>0?C.red:C.textSub}}>
                           {diff>0?"+":""}{diff} kg
                         </span>
                       )}
-                      <button onClick={()=>startEditWeight(e)} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,padding:2}}>✏️</button>
-                      <button onClick={()=>deleteWeight(e.id)} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,padding:2}}>🗑</button>
+                      <button onClick={()=>startEditWeight(e)} style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:7,cursor:"pointer",fontSize:11,padding:"4px 8px",color:C.textSub}}>✏️</button>
+                      <button onClick={()=>deleteWeight(e.id)} style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:7,cursor:"pointer",fontSize:11,padding:"4px 8px",color:C.textSub}}>🗑</button>
                     </div>
                   </div>
                 );
               })}
             </div>
           )}
-
           {sortedWeight.length===0&&(
-            <div style={{textAlign:"center",color:"#b8a9d9",fontSize:13,fontStyle:"italic",marginTop:20,padding:20}}>
+            <div style={{textAlign:"center",color:C.textMuted,fontSize:13,fontStyle:"italic",marginTop:24,padding:20}}>
               No weight entries yet.<br/>Log your first weigh-in above!
             </div>
           )}
@@ -600,85 +768,150 @@ export default function App() {
 
       {/* FAB */}
       {activeTab!=="weight"&&(
-        <button onClick={openAdd} style={{position:"fixed",bottom:24,right:20,width:52,height:52,borderRadius:"50%",background:"linear-gradient(135deg,#8b5cf6,#6366f1)",border:"none",color:"white",fontSize:24,cursor:"pointer",boxShadow:"0 6px 24px rgba(139,92,246,0.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100}}>+</button>
+        <button onClick={openAdd} style={{position:"fixed",bottom:26,right:20,
+          width:54,height:54,borderRadius:"50%",
+          background:`linear-gradient(135deg,${C.accent},${C.accentDim})`,
+          border:"none",color:"white",fontSize:26,cursor:"pointer",
+          boxShadow:`0 4px 20px ${C.accentGlow}, 0 0 30px ${C.accentGlow}`,
+          display:"flex",alignItems:"center",justifyContent:"center",zIndex:100,
+          fontWeight:300,transition:"transform 0.15s"}}
+          onTouchStart={e=>e.currentTarget.style.transform="scale(0.92)"}
+          onTouchEnd={e=>e.currentTarget.style.transform="scale(1)"}>+</button>
       )}
       <input ref={fileInputRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleFileUpload}/>
 
       {/* ══ ADD/EDIT MEAL MODAL ══ */}
       {showForm&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(30,10,60,0.45)",backdropFilter:"blur(4px)",zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget)setShowForm(false);}}>
-          <div style={{background:"white",borderRadius:"22px 22px 0 0",padding:"20px 16px 34px",width:"100%",maxWidth:480,boxShadow:"0 -8px 40px rgba(139,92,246,0.18)",maxHeight:"92vh",overflowY:"auto"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-              <div style={{fontSize:15,fontWeight:700,color:"#3d1f6b"}}>{editId?"Edit Meal":"Add Meal"}</div>
-              <button onClick={()=>setShowForm(false)} style={{background:"none",border:"none",fontSize:17,cursor:"pointer",color:"#9b87c2"}}>✕</button>
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",backdropFilter:"blur(8px)",
+          zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"}}
+          onClick={e=>{if(e.target===e.currentTarget)setShowForm(false);}}>
+          <div style={modalBase}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <div style={{fontSize:16,fontWeight:700,color:C.text}}>{editId?"Edit Meal":"Add Meal"}</div>
+              <button onClick={()=>setShowForm(false)} style={{background:C.bg2,border:`1px solid ${C.border}`,
+                borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",
+                cursor:"pointer",color:C.textSub,fontSize:14}}>✕</button>
             </div>
+
             {!editId&&(
-              <div style={{marginBottom:12}}>
-                <div style={{fontSize:11,color:"#9b87c2",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}}>⚡ Quick Pick</div>
-                <input placeholder="Search foods…" value={presetSearch} onChange={e=>setPresetSearch(e.target.value)} style={{...inputStyle,marginBottom:6,fontSize:12,padding:"7px 10px"}}/>
-                <div style={{display:"flex",gap:5,flexWrap:"wrap",maxHeight:80,overflowY:"auto"}}>
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:10,color:C.textSub,fontWeight:600,textTransform:"uppercase",
+                  letterSpacing:"0.1em",marginBottom:8}}>⚡ Quick Pick</div>
+                <input placeholder="Search foods…" value={presetSearch}
+                  onChange={e=>setPresetSearch(e.target.value)}
+                  style={{...darkInp,marginBottom:8,fontSize:12,padding:"9px 12px"}}/>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",maxHeight:82,overflowY:"auto"}}>
                   {filteredPresets.map(p=>(
-                    <button key={p.id} onClick={()=>applyPreset(p)} style={{padding:"5px 10px",borderRadius:18,border:"1.5px solid #d0c4f0",background:"#faf8ff",color:"#3d1f6b",fontSize:11,fontWeight:500,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:3,whiteSpace:"nowrap"}}>
-                      {p.emoji} {p.name} <span style={{color:"#9b87c2",fontSize:9}}>{calcCalories(p.protein,p.carbs,p.fat)||"0"}kcal</span>
+                    <button key={p.id} onClick={()=>applyPreset(p)} style={{
+                      padding:"5px 11px",borderRadius:20,border:`1px solid ${C.border}`,
+                      background:C.bg2,color:C.textSub,fontSize:11,fontWeight:500,
+                      cursor:"pointer",fontFamily:"inherit",
+                      display:"flex",alignItems:"center",gap:4,whiteSpace:"nowrap"}}>
+                      {p.emoji} {p.name}
+                      <span style={{color:C.accent,fontSize:9}}>{calcCalories(p.protein,p.carbs,p.fat)||"0"} kcal</span>
                     </button>
                   ))}
                 </div>
-                <div style={{height:1,background:"#ede8f8",margin:"10px 0"}}/>
+                <div style={{height:1,background:C.border,margin:"12px 0"}}/>
               </div>
             )}
-            <div style={{display:"flex",gap:5,marginBottom:10,flexWrap:"wrap"}}>
-              {MEAL_TYPES.map(t=>(
-                <button key={t} onClick={()=>setForm(f=>({...f,type:t}))} style={{padding:"4px 10px",borderRadius:16,border:"1.5px solid",borderColor:form.type===t?"#8b5cf6":"#d0c4f0",background:form.type===t?"#8b5cf6":"white",color:form.type===t?"white":"#6b5b9e",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{mealEmoji[t]} {t}</button>
-              ))}
+
+            {/* Meal type */}
+            <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+              {MEAL_TYPES.map(t=>{
+                const active=form.type===t;
+                const color=mealColor[t];
+                return(
+                  <button key={t} onClick={()=>setForm(f=>({...f,type:t}))} style={{
+                    padding:"5px 12px",borderRadius:18,border:`1px solid ${active?color:C.border}`,
+                    background:active?`${color}22`:"transparent",
+                    color:active?color:C.textSub,
+                    fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",
+                    boxShadow:active?`0 0 10px ${color}44`:"none",transition:"all 0.2s"}}>
+                    {mealEmoji[t]} {t}
+                  </button>
+                );
+              })}
             </div>
+
+            {/* Camera */}
             {!editId&&(
-              <div style={{marginBottom:10}}>
+              <div style={{marginBottom:12}}>
                 {cameraStep==="idle"&&(
-                  <div style={{display:"flex",gap:6}}>
-                    <button onClick={startCamera} style={{flex:1,padding:"8px 0",borderRadius:10,border:"1.5px dashed #8b5cf6",background:"#faf8ff",color:"#8b5cf6",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>📷 Camera</button>
-                    <button onClick={()=>fileInputRef.current?.click()} style={{flex:1,padding:"8px 0",borderRadius:10,border:"1.5px dashed #6366f1",background:"#f8f8ff",color:"#6366f1",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>🖼 Upload</button>
+                  <div style={{display:"flex",gap:8}}>
+                    <button onClick={startCamera} style={{flex:1,padding:"9px 0",borderRadius:11,
+                      border:`1px dashed ${C.accent}`,background:C.bg2,color:C.accent,
+                      fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",
+                      display:"flex",alignItems:"center",justifyContent:"center",gap:5}}>📷 Camera</button>
+                    <button onClick={()=>fileInputRef.current?.click()} style={{flex:1,padding:"9px 0",borderRadius:11,
+                      border:`1px dashed ${C.borderHi}`,background:C.bg2,color:C.textSub,
+                      fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",
+                      display:"flex",alignItems:"center",justifyContent:"center",gap:5}}>🖼 Upload</button>
                   </div>
                 )}
                 {cameraStep==="preview"&&(
-                  <div style={{borderRadius:12,overflow:"hidden",background:"#000"}}>
+                  <div style={{borderRadius:14,overflow:"hidden",background:"#000"}}>
                     <video ref={videoRef} autoPlay playsInline muted style={{width:"100%",maxHeight:180,objectFit:"cover",display:"block"}}/>
-                    <div style={{display:"flex",gap:6,padding:"8px",background:"rgba(0,0,0,0.6)"}}>
-                      <button onClick={()=>{stopCamera();setCameraStep("idle");}} style={{flex:1,padding:"7px",borderRadius:8,border:"none",background:"rgba(255,255,255,0.2)",color:"white",fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
-                      <button onClick={captureFromCamera} style={{flex:2,padding:"7px",borderRadius:8,border:"none",background:"#8b5cf6",color:"white",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>📸 Capture</button>
+                    <div style={{display:"flex",gap:8,padding:"9px",background:"rgba(0,0,0,0.7)"}}>
+                      <button onClick={()=>{stopCamera();setCameraStep("idle");}} style={{flex:1,padding:"8px",borderRadius:9,border:"none",background:"rgba(255,255,255,0.1)",color:"white",fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+                      <button onClick={captureFromCamera} style={{flex:2,padding:"8px",borderRadius:9,border:"none",background:C.accentDim,color:"white",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>📸 Capture</button>
                     </div>
                   </div>
                 )}
                 {(cameraStep==="analyzing"||cameraStep==="done")&&capturedImage&&(
-                  <div style={{borderRadius:12,overflow:"hidden"}}>
+                  <div style={{borderRadius:14,overflow:"hidden"}}>
                     <img src={capturedImage} alt="meal" style={{width:"100%",maxHeight:120,objectFit:"cover",display:"block"}}/>
-                    {cameraStep==="analyzing"&&<div style={{padding:"8px",background:"rgba(61,31,107,0.7)",display:"flex",alignItems:"center",gap:7}}><span style={{fontSize:16}}>🔍</span><span style={{color:"white",fontSize:11}}>Analysing nutrition…</span></div>}
+                    {cameraStep==="analyzing"&&(
+                      <div style={{padding:"9px",background:"rgba(0,0,0,0.8)",display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{fontSize:16}}>🔍</span>
+                        <span style={{color:C.text,fontSize:11}}>Analysing nutrition…</span>
+                      </div>
+                    )}
                     {cameraStep==="done"&&(
-                      <div style={{padding:"5px 8px",background:analysisError?"#fff0f0":"#f0fff4",display:"flex",alignItems:"center",gap:5}}>
+                      <div style={{padding:"7px 10px",background:analysisError?"#2a1010":"#0a2a1a",
+                        display:"flex",alignItems:"center",gap:6}}>
                         <span style={{fontSize:12}}>{analysisError?"⚠️":"✅"}</span>
-                        <span style={{fontSize:11,color:analysisError?"#c0392b":"#27ae60"}}>{analysisError||"Macros pre-filled"}</span>
-                        <button onClick={()=>{setCameraStep("idle");setCapturedImage(null);setAnalysisError("");}} style={{marginLeft:"auto",background:"none",border:"none",fontSize:10,color:"#9b87c2",cursor:"pointer"}}>Retake</button>
+                        <span style={{fontSize:11,color:analysisError?C.red:C.green}}>{analysisError||"Macros pre-filled"}</span>
+                        <button onClick={()=>{setCameraStep("idle");setCapturedImage(null);setAnalysisError("");}}
+                          style={{marginLeft:"auto",background:"none",border:"none",fontSize:10,color:C.textSub,cursor:"pointer"}}>Retake</button>
                       </div>
                     )}
                   </div>
                 )}
               </div>
             )}
-            <input placeholder="Meal name" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} style={inputStyle}/>
-            <div style={{fontSize:10,color:"#9b87c2",marginBottom:4,fontStyle:"italic"}}>Protein + Carbs + Fat → calories auto-calculated</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:6}}>
-              {[{key:"protein",ph:"Protein g",col:"#FF6B6B"},{key:"carbs",ph:"Carbs g",col:"#4ECDC4"},{key:"fat",ph:"Fat g",col:"#FFD93D"}].map(({key,ph,col})=>(
-                <input key={key} type="number" min="0" placeholder={ph} value={form[key]} onChange={e=>updateMacro(key,e.target.value)} style={{...smallInput,borderColor:form[key]?col:"#d0c4f0"}}/>
+
+            <input placeholder="Meal name" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} style={darkInp}/>
+            <div style={{fontSize:10,color:C.textMuted,marginBottom:6,fontStyle:"italic"}}>Protein + Carbs + Fat → calories auto-calculated</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
+              {[{key:"protein",ph:"Protein g",col:C.red},{key:"carbs",ph:"Carbs g",col:C.green},{key:"fat",ph:"Fat g",col:C.amber}].map(({key,ph,col})=>(
+                <input key={key} type="number" min="0" placeholder={ph} value={form[key]}
+                  onChange={e=>updateMacro(key,e.target.value)}
+                  style={{...darkInpSm,borderColor:form[key]?col:C.border,
+                    boxShadow:form[key]?`0 0 8px ${col}44`:"none"}}/>
               ))}
             </div>
-            <div style={{background:"#faf0ff",border:"1.5px solid #c4a8f0",borderRadius:9,padding:"8px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-              <span style={{fontSize:11,color:"#8b5cf6",fontWeight:600}}>🔥 Calories</span>
-              <input type="number" min="0" value={form.calories} onChange={e=>setForm(f=>({...f,calories:e.target.value}))} placeholder="auto" style={{border:"none",background:"transparent",fontSize:14,fontWeight:700,color:"#3d1f6b",width:70,textAlign:"right",outline:"none",fontFamily:"inherit"}}/>
-              <span style={{fontSize:10,color:"#9b87c2"}}>kcal</span>
+            <div style={{background:C.bg2,border:`1px solid ${C.borderHi}`,borderRadius:10,
+              padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,
+              boxShadow:`0 0 12px ${C.accentGlow}`}}>
+              <span style={{fontSize:11,color:C.accent,fontWeight:700,letterSpacing:"0.06em"}}>🔥 CALORIES</span>
+              <input type="number" min="0" value={form.calories} onChange={e=>setForm(f=>({...f,calories:e.target.value}))}
+                placeholder="auto" style={{border:"none",background:"transparent",fontSize:18,fontWeight:800,
+                color:C.text,width:80,textAlign:"right",outline:"none",fontFamily:"inherit"}}/>
+              <span style={{fontSize:11,color:C.textMuted}}>kcal</span>
             </div>
-            <input placeholder="Notes (optional)" value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} style={inputStyle}/>
-            <div style={{display:"flex",gap:8}}>
-              <button onClick={()=>setShowForm(false)} style={{flex:1,padding:"10px",borderRadius:10,border:"1.5px solid #d0c4f0",background:"white",color:"#6b5b9e",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
-              <button onClick={saveMeal} style={{flex:2,padding:"10px",borderRadius:10,border:"none",background:form.name.trim()?"linear-gradient(135deg,#8b5cf6,#6366f1)":"#d0c4f0",color:"white",fontSize:12,fontWeight:700,cursor:form.name.trim()?"pointer":"default",fontFamily:"inherit"}}>{editId?"Save Changes":"Add Meal"}</button>
+            <input placeholder="Notes (optional)" value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} style={darkInp}/>
+            <div style={{display:"flex",gap:9}}>
+              <button onClick={()=>setShowForm(false)} style={{flex:1,padding:"12px",borderRadius:12,
+                border:`1px solid ${C.border}`,background:"transparent",color:C.textSub,
+                fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+              <button onClick={saveMeal} style={{flex:2,padding:"12px",borderRadius:12,border:"none",
+                background:form.name.trim()?`linear-gradient(135deg,${C.accent},${C.accentDim})`:"#1e1e2e",
+                color:form.name.trim()?C.text:C.textMuted,fontSize:13,fontWeight:700,
+                cursor:form.name.trim()?"pointer":"default",fontFamily:"inherit",
+                boxShadow:form.name.trim()?`0 0 16px ${C.accentGlow}`:"none"}}>
+                {editId?"Save Changes":"Add Meal"}
+              </button>
             </div>
           </div>
         </div>
@@ -686,40 +919,75 @@ export default function App() {
 
       {/* ══ LIBRARY MODAL ══ */}
       {showLibrary&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(30,10,60,0.45)",backdropFilter:"blur(4px)",zIndex:300,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget){setShowLibrary(false);cancelPresetEdit();}}}>
-          <div style={{background:"white",borderRadius:"22px 22px 0 0",padding:"20px 16px 34px",width:"100%",maxWidth:480,boxShadow:"0 -8px 40px rgba(139,92,246,0.18)",maxHeight:"92vh",overflowY:"auto"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-              <div><div style={{fontSize:15,fontWeight:700,color:"#3d1f6b"}}>📚 My Foods Library</div><div style={{fontSize:11,color:"#9b87c2"}}>{presets.length} items</div></div>
-              <button onClick={()=>{setShowLibrary(false);cancelPresetEdit();}} style={{background:"none",border:"none",fontSize:17,cursor:"pointer",color:"#9b87c2"}}>✕</button>
-            </div>
-            <div style={{background:"#faf6ff",border:"1.5px solid #d0c4f0",borderRadius:13,padding:"12px 12px 9px",marginBottom:14}}>
-              <div style={{fontSize:11,fontWeight:700,color:"#3d1f6b",marginBottom:8}}>{editPresetId?"✏️ Edit Food":"＋ Add New Food"}</div>
-              <div style={{display:"flex",gap:6,marginBottom:7}}>
-                <input value={presetForm.emoji} onChange={e=>setPresetForm(f=>({...f,emoji:e.target.value}))} style={{...smallInput,width:46,textAlign:"center",fontSize:18,padding:"5px 3px",flexShrink:0}} maxLength={2}/>
-                <input placeholder="Food name" value={presetForm.name} onChange={e=>setPresetForm(f=>({...f,name:e.target.value}))} style={{...smallInput,flex:1}}/>
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",backdropFilter:"blur(8px)",
+          zIndex:300,display:"flex",alignItems:"flex-end",justifyContent:"center"}}
+          onClick={e=>{if(e.target===e.currentTarget){setShowLibrary(false);cancelPresetEdit();}}}>
+          <div style={modalBase}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <div>
+                <div style={{fontSize:15,fontWeight:700,color:C.text}}>📚 My Foods Library</div>
+                <div style={{fontSize:11,color:C.textSub}}>{presets.length} items</div>
               </div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:6}}>
-                {[{k:"protein",ph:"Protein g",c:"#FF6B6B"},{k:"carbs",ph:"Carbs g",c:"#4ECDC4"},{k:"fat",ph:"Fat g",c:"#FFD93D"}].map(({k,ph,c})=>(
-                  <input key={k} type="number" min="0" placeholder={ph} value={presetForm[k]} onChange={e=>setPresetForm(f=>({...f,[k]:e.target.value}))} style={{...smallInput,borderColor:presetForm[k]?c:"#d0c4f0"}}/>
+              <button onClick={()=>{setShowLibrary(false);cancelPresetEdit();}} style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:C.textSub,fontSize:14}}>✕</button>
+            </div>
+            <div style={{background:C.bg2,border:`1px solid ${C.borderHi}`,borderRadius:14,
+              padding:"14px",marginBottom:14,boxShadow:`0 0 16px ${C.accentGlow}`}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.text,marginBottom:10}}>
+                {editPresetId?"✏️ Edit Food":"＋ Add New Food"}
+              </div>
+              <div style={{display:"flex",gap:8,marginBottom:9}}>
+                <input value={presetForm.emoji} onChange={e=>setPresetForm(f=>({...f,emoji:e.target.value}))}
+                  style={{...darkInpSm,width:46,textAlign:"center",fontSize:18,padding:"7px 4px",flexShrink:0,marginBottom:0}} maxLength={2}/>
+                <input placeholder="Food name" value={presetForm.name}
+                  onChange={e=>setPresetForm(f=>({...f,name:e.target.value}))}
+                  style={{...darkInpSm,flex:1,marginBottom:0}}/>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
+                {[{k:"protein",ph:"Protein",c:C.red},{k:"carbs",ph:"Carbs",c:C.green},{k:"fat",ph:"Fat",c:C.amber}].map(({k,ph,c})=>(
+                  <input key={k} type="number" min="0" placeholder={ph} value={presetForm[k]}
+                    onChange={e=>setPresetForm(f=>({...f,[k]:e.target.value}))}
+                    style={{...darkInpSm,borderColor:presetForm[k]?c:C.border}}/>
                 ))}
               </div>
-              <div style={{fontSize:11,color:"#8b5cf6",fontWeight:600,textAlign:"right",marginBottom:6}}>🔥 {calcCalories(presetForm.protein,presetForm.carbs,presetForm.fat)||"0"} kcal</div>
-              <input placeholder="Notes" value={presetForm.notes} onChange={e=>setPresetForm(f=>({...f,notes:e.target.value}))} style={{...smallInput,width:"100%",boxSizing:"border-box"}}/>
-              <div style={{display:"flex",gap:6,marginTop:8}}>
-                {editPresetId&&<button onClick={cancelPresetEdit} style={{flex:1,padding:"8px",borderRadius:9,border:"1.5px solid #d0c4f0",background:"white",color:"#6b5b9e",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>}
-                <button onClick={savePreset} style={{flex:2,padding:"8px",borderRadius:9,border:"none",background:presetForm.name.trim()?"linear-gradient(135deg,#8b5cf6,#6366f1)":"#d0c4f0",color:"white",fontSize:11,fontWeight:700,cursor:presetForm.name.trim()?"pointer":"default",fontFamily:"inherit"}}>{editPresetId?"Save Changes":"Add to Library"}</button>
+              <div style={{fontSize:11,color:C.accent,fontWeight:700,textAlign:"right",marginBottom:8}}>
+                🔥 {calcCalories(presetForm.protein,presetForm.carbs,presetForm.fat)||"0"} kcal
+              </div>
+              <input placeholder="Notes" value={presetForm.notes}
+                onChange={e=>setPresetForm(f=>({...f,notes:e.target.value}))}
+                style={{...darkInpSm,width:"100%",boxSizing:"border-box",marginBottom:10}}/>
+              <div style={{display:"flex",gap:8}}>
+                {editPresetId&&(
+                  <button onClick={cancelPresetEdit} style={{flex:1,padding:"9px",borderRadius:10,
+                    border:`1px solid ${C.border}`,background:"transparent",color:C.textSub,
+                    fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+                )}
+                <button onClick={savePreset} style={{flex:2,padding:"9px",borderRadius:10,border:"none",
+                  background:presetForm.name.trim()?`linear-gradient(135deg,${C.accent},${C.accentDim})`:"#1e1e2e",
+                  color:presetForm.name.trim()?C.text:C.textMuted,fontSize:11,fontWeight:700,
+                  cursor:presetForm.name.trim()?"pointer":"default",fontFamily:"inherit"}}>
+                  {editPresetId?"Save Changes":"Add to Library"}
+                </button>
               </div>
             </div>
-            <input placeholder="Search…" value={libSearch} onChange={e=>setLibSearch(e.target.value)} style={{...inputStyle,fontSize:12,padding:"7px 10px"}}/>
+            <input placeholder="Search foods…" value={libSearch} onChange={e=>setLibSearch(e.target.value)}
+              style={{...darkInp,fontSize:12,padding:"9px 12px"}}/>
             {libFiltered.map(p=>(
-              <div key={p.id} style={{background:editPresetId===p.id?"#f0ebff":"white",border:`1.5px solid ${editPresetId===p.id?"#8b5cf6":"#e2d9f3"}`,borderRadius:11,padding:"9px 11px",marginBottom:6,display:"flex",alignItems:"center",gap:9}}>
-                <span style={{fontSize:20}}>{p.emoji}</span>
+              <div key={p.id} style={{background:editPresetId===p.id?C.bg3:C.bg2,
+                border:`1px solid ${editPresetId===p.id?C.accent:C.border}`,
+                borderRadius:12,padding:"10px 12px",marginBottom:7,
+                display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:22}}>{p.emoji}</span>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontWeight:600,color:"#2d1b55",fontSize:12}}>{p.name}</div>
-                  <div style={{fontSize:10,color:"#7b6aab"}}>{calcCalories(p.protein,p.carbs,p.fat)||"0"} kcal{p.protein?` · ${p.protein}g P`:""}{p.carbs?` · ${p.carbs}g C`:""}{p.fat?` · ${p.fat}g F`:""}</div>
+                  <div style={{fontWeight:600,color:C.text,fontSize:12}}>{p.name}</div>
+                  <div style={{fontSize:10,color:C.textSub,display:"flex",gap:8,marginTop:2}}>
+                    <span style={{color:C.accent}}>{calcCalories(p.protein,p.carbs,p.fat)||"0"} kcal</span>
+                    {p.protein?<span style={{color:C.red}}>{p.protein}g P</span>:""}
+                    {p.carbs?<span style={{color:C.green}}>{p.carbs}g C</span>:""}
+                    {p.fat?<span style={{color:C.amber}}>{p.fat}g F</span>:""}
+                  </div>
                 </div>
-                <button onClick={()=>editPreset(p)} style={{background:"none",border:"none",cursor:"pointer",fontSize:13,padding:2}}>✏️</button>
-                <button onClick={()=>deletePreset(p.id)} style={{background:"none",border:"none",cursor:"pointer",fontSize:13,padding:2}}>🗑</button>
+                <button onClick={()=>editPreset(p)} style={{background:C.bg3,border:`1px solid ${C.border}`,borderRadius:7,cursor:"pointer",fontSize:11,padding:"4px 8px",color:C.textSub}}>✏️</button>
+                <button onClick={()=>deletePreset(p.id)} style={{background:C.bg3,border:`1px solid ${C.border}`,borderRadius:7,cursor:"pointer",fontSize:11,padding:"4px 8px",color:C.textSub}}>🗑</button>
               </div>
             ))}
           </div>
@@ -728,50 +996,54 @@ export default function App() {
 
       {/* ══ REPORT MODAL ══ */}
       {showReport&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(30,10,60,0.45)",backdropFilter:"blur(4px)",zIndex:300,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget)setShowReport(false);}}>
-          <div style={{background:"white",borderRadius:"22px 22px 0 0",padding:"20px 16px 36px",width:"100%",maxWidth:480,boxShadow:"0 -8px 40px rgba(139,92,246,0.18)",maxHeight:"90vh",overflowY:"auto"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-              <div><div style={{fontSize:15,fontWeight:700,color:"#3d1f6b"}}>📊 Download Report</div><div style={{fontSize:11,color:"#9b87c2"}}>Export your meal history</div></div>
-              <button onClick={()=>setShowReport(false)} style={{background:"none",border:"none",fontSize:17,cursor:"pointer",color:"#9b87c2"}}>✕</button>
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",backdropFilter:"blur(8px)",
+          zIndex:300,display:"flex",alignItems:"flex-end",justifyContent:"center"}}
+          onClick={e=>{if(e.target===e.currentTarget)setShowReport(false);}}>
+          <div style={modalBase}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <div>
+                <div style={{fontSize:15,fontWeight:700,color:C.text}}>📊 Download Report</div>
+                <div style={{fontSize:11,color:C.textSub}}>Export your meal history</div>
+              </div>
+              <button onClick={()=>setShowReport(false)} style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:C.textSub,fontSize:14}}>✕</button>
             </div>
             <div style={{marginBottom:14}}>
-              <div style={{fontSize:11,color:"#9b87c2",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:7}}>Date Range</div>
+              <div style={{fontSize:10,color:C.textSub,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>Date Range</div>
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                {[["7","Last 7 days"],["14","Last 14 days"],["30","Last 30 days"],["custom","Custom"]].map(([val,label])=>(
-                  <button key={val} onClick={()=>setReportRange(val)} style={{padding:"6px 12px",borderRadius:18,border:"1.5px solid",borderColor:reportRange===val?"#8b5cf6":"#d0c4f0",background:reportRange===val?"#8b5cf6":"white",color:reportRange===val?"white":"#6b5b9e",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{label}</button>
+                {[["7","7 days"],["14","14 days"],["30","30 days"],["custom","Custom"]].map(([val,label])=>(
+                  <button key={val} onClick={()=>setReportRange(val)} style={{
+                    padding:"6px 13px",borderRadius:18,border:`1px solid ${reportRange===val?C.accent:C.border}`,
+                    background:reportRange===val?C.accentDim:"transparent",
+                    color:reportRange===val?C.text:C.textSub,
+                    fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",
+                    boxShadow:reportRange===val?`0 0 10px ${C.accentGlow}`:"none"}}>{label}</button>
                 ))}
               </div>
             </div>
             {reportRange==="custom"&&(
-              <div style={{display:"flex",gap:8,marginBottom:14,alignItems:"center"}}>
-                <div style={{flex:1}}><div style={{fontSize:10,color:"#9b87c2",marginBottom:4}}>From</div><input type="date" value={reportFrom} onChange={e=>setReportFrom(e.target.value)} style={{...smallInput,fontSize:12,width:"100%",boxSizing:"border-box"}}/></div>
-                <div style={{color:"#9b87c2",marginTop:14}}>→</div>
-                <div style={{flex:1}}><div style={{fontSize:10,color:"#9b87c2",marginBottom:4}}>To</div><input type="date" value={reportTo} onChange={e=>setReportTo(e.target.value)} style={{...smallInput,fontSize:12,width:"100%",boxSizing:"border-box"}}/></div>
+              <div style={{display:"flex",gap:10,marginBottom:14,alignItems:"center"}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:10,color:C.textSub,marginBottom:5}}>From</div>
+                  <input type="date" value={reportFrom} onChange={e=>setReportFrom(e.target.value)} style={{...darkInpSm,width:"100%",boxSizing:"border-box"}}/>
+                </div>
+                <div style={{color:C.textMuted,marginTop:14}}>→</div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:10,color:C.textSub,marginBottom:5}}>To</div>
+                  <input type="date" value={reportTo} onChange={e=>setReportTo(e.target.value)} style={{...darkInpSm,width:"100%",boxSizing:"border-box"}}/>
+                </div>
               </div>
             )}
-            <div style={{background:"#faf6ff",border:"1.5px solid #e2d9f3",borderRadius:13,padding:"13px 14px",marginBottom:16}}>
-              <div style={{fontSize:11,color:"#9b87c2",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>Period Summary</div>
+            <div style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,
+              padding:"14px",marginBottom:16}}>
+              <div style={{fontSize:10,color:C.textSub,fontWeight:600,textTransform:"uppercase",
+                letterSpacing:"0.08em",marginBottom:12}}>Period Summary</div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                {[{label:"Days with entries",val:reportDaysWithData.length,unit:"days",color:"#8b5cf6"},{label:"Avg daily calories",val:avgCalories,unit:"kcal",color:"#FF6B6B"},{label:"Total protein",val:reportTotals.protein,unit:"g",color:"#4ECDC4"},{label:"Total meals logged",val:reportDates.reduce((a,d)=>a+(allData[d]||[]).length,0),unit:"meals",color:"#FFD93D"}].map(s=>(
-                  <div key={s.label} style={{background:"white",borderRadius:10,padding:"9px 11px"}}>
-                    <div style={{fontSize:18,fontWeight:700,color:s.color}}>{s.val}<span style={{fontSize:11}}>{s.unit}</span></div>
-                    <div style={{fontSize:10,color:"#9b87c2"}}>{s.label}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div style={{fontSize:11,color:"#9b87c2",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>Export As</div>
-            <div style={{display:"flex",gap:9}}>
-              <button onClick={()=>exportExcel(allData,reportDates)} disabled={reportDaysWithData.length===0} style={{flex:1,padding:"13px 8px",borderRadius:12,border:"none",background:reportDaysWithData.length>0?"linear-gradient(135deg,#1D6F42,#21A366)":"#d0c4f0",color:"white",fontSize:13,fontWeight:700,cursor:reportDaysWithData.length>0?"pointer":"default",fontFamily:"inherit",display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
-                <span style={{fontSize:22}}>📗</span><span>Excel (.xlsx)</span><span style={{fontSize:10,opacity:0.8}}>Full detail table</span>
-              </button>
-              <button onClick={()=>exportPDF(allData,reportDates)} disabled={reportDaysWithData.length===0} style={{flex:1,padding:"13px 8px",borderRadius:12,border:"none",background:reportDaysWithData.length>0?"linear-gradient(135deg,#c0392b,#e74c3c)":"#d0c4f0",color:"white",fontSize:13,fontWeight:700,cursor:reportDaysWithData.length>0?"pointer":"default",fontFamily:"inherit",display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
-                <span style={{fontSize:22}}>📕</span><span>PDF / Print</span><span style={{fontSize:10,opacity:0.8}}>Printable report</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+                {[
+                  {label:"Days logged",val:reportDaysWithData.length,unit:"days",color:C.accent},
+                  {label:"Avg calories",val:avgCalories,unit:"kcal",color:C.red},
+                  {label:"Total protein",val:reportTotals.protein,unit:"g",color:C.green},
+                  {label:"Total meals",val:reportDates.reduce((a,d)=>a+(allData[d]||[]).length,0),unit:"",color:C.amber},
+                ].map(s=>(
+                  <div key={s.label} style={{background:C.bg1,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}`}}>
+                    <div style={{fontSize:20,fontWeight:800,color:s.color}}>{s.val}<span style={{fontSize:11,fontWeight:500}}> {s.unit}</span></div>
+                    <div style={{fo
