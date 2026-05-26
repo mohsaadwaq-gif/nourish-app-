@@ -1046,4 +1046,36 @@ export default function App(){
                 ].map(s=>(
                   <div key={s.label} style={{background:C.bg1,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}`}}>
                     <div style={{fontSize:20,fontWeight:800,color:s.color}}>{s.val}<span style={{fontSize:11,fontWeight:500}}> {s.unit}</span></div>
-                    <div style={{fo
+                    <div style={{fontSize:10,color:C.textSub,marginTop:2}}>{s.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={()=>exportExcel(allData,reportDates)} disabled={reportDaysWithData.length===0}
+                style={{flex:1,padding:"14px 8px",borderRadius:13,border:"none",
+                  background:reportDaysWithData.length>0?"linear-gradient(135deg,#064e3b,#065f46)":"#1e1e2e",
+                  color:reportDaysWithData.length>0?C.text:C.textMuted,fontSize:12,fontWeight:700,
+                  cursor:reportDaysWithData.length>0?"pointer":"default",fontFamily:"inherit",
+                  display:"flex",flexDirection:"column",alignItems:"center",gap:5}}>
+                <span style={{fontSize:24}}>📗</span>
+                <span>Excel</span>
+                <span style={{fontSize:10,opacity:0.7}}>.xlsx file</span>
+              </button>
+              <button onClick={()=>exportPDF(allData,reportDates)} disabled={reportDaysWithData.length===0}
+                style={{flex:1,padding:"14px 8px",borderRadius:13,border:"none",
+                  background:reportDaysWithData.length>0?"linear-gradient(135deg,#7f1d1d,#991b1b)":"#1e1e2e",
+                  color:reportDaysWithData.length>0?C.text:C.textMuted,fontSize:12,fontWeight:700,
+                  cursor:reportDaysWithData.length>0?"pointer":"default",fontFamily:"inherit",
+                  display:"flex",flexDirection:"column",alignItems:"center",gap:5}}>
+                <span style={{fontSize:24}}>📕</span>
+                <span>PDF / Print</span>
+                <span style={{fontSize:10,opacity:0.7}}>Printable</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
