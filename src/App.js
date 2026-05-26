@@ -516,27 +516,31 @@ export default function App() {
 
           {/* Log entry form */}
           <div style={{background:"#faf6ff",border:"1.5px solid #d0c4f0",borderRadius:13,padding:"13px 14px",marginBottom:14}}>
-            <div style={{fontSize:12,fontWeight:700,color:"#3d1f6b",marginBottom:10}}>
+            <div style={{fontSize:12,fontWeight:700,color:"#3d1f6b",marginBottom:12}}>
               {editWeightId?"✏️ Edit Entry":"➕ Log Weight"}
             </div>
-            <div style={{display:"flex",gap:8,marginBottom:8}}>
-              <div style={{flex:1}}>
-                <div style={{fontSize:10,color:"#9b87c2",marginBottom:4}}>Date</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+              <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                <div style={{fontSize:10,fontWeight:600,color:"#9b87c2",textTransform:"uppercase",letterSpacing:"0.05em"}}>Date</div>
                 <input type="date" value={weightDate} onChange={e=>setWeightDate(e.target.value)}
-                  style={{...smallInput,width:"100%",boxSizing:"border-box"}}/>
+                  style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1.5px solid #d0c4f0",
+                    fontSize:13,color:"#3d1f6b",background:"white",outline:"none",
+                    fontFamily:"Georgia,serif",boxSizing:"border-box",height:40}}/>
               </div>
-              <div style={{flex:1}}>
-                <div style={{fontSize:10,color:"#9b87c2",marginBottom:4}}>Weight (kg)</div>
+              <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                <div style={{fontSize:10,fontWeight:600,color:"#9b87c2",textTransform:"uppercase",letterSpacing:"0.05em"}}>Weight (kg)</div>
                 <input type="number" min="0" step="0.1" placeholder="e.g. 78.5" value={weightInput}
                   onChange={e=>setWeightInput(e.target.value)}
-                  style={{...smallInput,width:"100%",boxSizing:"border-box"}}/>
+                  style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1.5px solid ${weightInput?"#8b5cf6":"#d0c4f0"}`,
+                    fontSize:13,color:"#3d1f6b",background:"white",outline:"none",
+                    fontFamily:"Georgia,serif",boxSizing:"border-box",height:40}}/>
               </div>
             </div>
             <div style={{display:"flex",gap:8}}>
               {editWeightId&&(
-                <button onClick={cancelEditWeight} style={{flex:1,padding:"9px",borderRadius:10,border:"1.5px solid #d0c4f0",background:"white",color:"#6b5b9e",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+                <button onClick={cancelEditWeight} style={{flex:1,padding:"10px",borderRadius:10,border:"1.5px solid #d0c4f0",background:"white",color:"#6b5b9e",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
               )}
-              <button onClick={saveWeight} style={{flex:2,padding:"9px",borderRadius:10,border:"none",background:weightInput?"linear-gradient(135deg,#8b5cf6,#6366f1)":"#d0c4f0",color:"white",fontSize:12,fontWeight:700,cursor:weightInput?"pointer":"default",fontFamily:"inherit"}}>
+              <button onClick={saveWeight} style={{flex:2,padding:"10px",borderRadius:10,border:"none",background:weightInput?"linear-gradient(135deg,#8b5cf6,#6366f1)":"#d0c4f0",color:"white",fontSize:12,fontWeight:700,cursor:weightInput?"pointer":"default",fontFamily:"inherit"}}>
                 {editWeightId?"Save Changes":"Log Weight"}
               </button>
             </div>
