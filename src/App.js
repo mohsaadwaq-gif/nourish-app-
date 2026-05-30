@@ -24,7 +24,66 @@ const C = {
 const MEAL_TYPES = ["Breakfast","Lunch","Dinner","Snack"];
 const mealEmoji  = {Breakfast:"🌅",Lunch:"☀️",Dinner:"🌙",Snack:"🍎"};
 const mealColor  = {Breakfast:"#f59e0b",Lunch:"#34d399",Dinner:"#a78bfa",Snack:"#f87171"};
-const CAL_GOAL   = 2000;
+const CAL_GOAL   = 2000; // fallback only — algorithm overrides this
+
+// ─── Adaptive TDEE Algorithm ─────────────────────────────────────────────────
+// How it works:
+//   1. Take last 14 days of meal logs → calculate average daily calories
+//   2. Take first + last weight entries in that window → calculate kg change
+//   3. Convert weight change to kcal (1 kg fat ≈ 7700 kcal)
+//   4. Derive true TDEE: avg_cal_eaten + (kcal_change / days)
+//   5. Apply goal adjustment: lose = TDEE−300, maintain = TDEE, gain = TDEE+300
+function calcAdaptiveTDEE(allData, weightLog, userGoal) {
+  // Need at least 7 days of meal data + 2 weight entries
+  const today = getTodayKey();
+  const window = 14;
+  const days = [];
+  for (let i = 0; i < window; i++) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    days.push(d.toISOString().slice(0, 10));
+  }
+
+  // Filter days that actually have meal logs
+  const loggedDays = days.filter(d => (allData[d] || []).length > 0);
+  if (loggedDays.length < 7) return null; // not enough data yet
+
+  // Average daily calories over logged days
+  const totalCals = loggedDays.reduce((sum, d) => sum + getDayTotals(allData[d] || []).calories, 0);
+  const avgCals = totalCals / loggedDays.length;
+
+  // Weight entries within this window
+  const sorted = [...weightLog].sort((a, b) => a.date.localeCompare(b.date));
+  const windowWeights = sorted.filter(e => days.includes(e.date));
+  if (windowWeights.length < 2) return null; // need at least 2 weigh-ins
+
+  const firstW = windowWeights[0].weight;
+  const lastW  = windowWeights[windowWeights.length - 1].weight;
+  const daysBetween = Math.max(
+    (new Date(windowWeights[windowWeights.length-1].date) - new Date(windowWeights[0].date)) / 86400000,
+    1
+  );
+
+  // Weight change → kcal/day equivalent
+  // Gaining weight means you ate MORE than TDEE → TDEE is lower than avgCals
+  // Losing weight means you ate LESS than TDEE → TDEE is higher than avgCals
+  const kgChange = lastW - firstW;
+  const kcalPerDayFromWeight = (kgChange * 7700) / daysBetween;
+  const estimatedTDEE = Math.round(avgCals - kcalPerDayFromWeight);
+
+  // Apply goal adjustment
+  const GOAL_ADJUSTMENTS = { lose: -500, maintain: 0, gain: 300 };
+  const adjustment = GOAL_ADJUSTMENTS[userGoal] ?? -500;
+  const recommendedGoal = Math.max(1200, estimatedTDEE + adjustment);
+
+  return {
+    tdee: estimatedTDEE,
+    recommendedGoal,
+    avgCals: Math.round(avgCals),
+    kgChange: Math.round(kgChange * 10) / 10,
+    daysAnalysed: loggedDays.length,
+    confidence: loggedDays.length >= 10 ? "high" : loggedDays.length >= 7 ? "medium" : "low",
+  };
+}
 
 const DEFAULT_PRESETS = [
   {id:"p1", name:"Black Coffee",      emoji:"☕",protein:0, carbs:0, fat:0, notes:"No milk/sugar"},
@@ -167,7 +226,7 @@ function WeightChart({entries}){
 }
 
 // ─── Calorie Ring ─────────────────────────────────────────────────────────────
-function CalRing({calories,goal=CAL_GOAL}){
+function CalRing({calories,goal}){  // goal passed in from activeCalGoal
   const pct=Math.min(calories/goal,1);
   const R=54, circ=2*Math.PI*R;
   const over=calories>goal;
@@ -264,6 +323,10 @@ export default function App(){
   const [weightGoal,  setWeightGoal]  = useState("");
   const [editWeightId,setEditWeightId]= useState(null);
 
+  // ── User Goal + Profile (for adaptive algorithm) ─────────────────────────
+  const [userGoal,    setUserGoal]    = useState("lose");   // lose | maintain | gain
+  const [showGoals,   setShowGoals]   = useState(false);
+
   // Meal modal
   const [showForm,     setShowForm]     = useState(false);
   const [form,         setForm]         = useState(EMPTY_FORM);
@@ -300,11 +363,14 @@ export default function App(){
     if(p) try{setPresets(JSON.parse(p));}catch{}
     if(w) try{setWeightLog(JSON.parse(w));}catch{}
     if(wg) setWeightGoal(wg);
+    const ug=localStorage.getItem("nourish_user_goal_v1");
+    if(ug) setUserGoal(ug);
   },[]);
   useEffect(()=>{localStorage.setItem("nourish_data_v3",JSON.stringify(allData));},[allData]);
   useEffect(()=>{localStorage.setItem("nourish_presets_v1",JSON.stringify(presets));},[presets]);
   useEffect(()=>{localStorage.setItem("nourish_weight_v1",JSON.stringify(weightLog));},[weightLog]);
   useEffect(()=>{localStorage.setItem("nourish_weight_goal_v1",weightGoal);},[weightGoal]);
+  useEffect(()=>{localStorage.setItem("nourish_user_goal_v1",userGoal);},[userGoal]);
 
   // ── Camera ────────────────────────────────────────────────────────────────
   const stopCamera=useCallback(()=>{streamRef.current?.getTracks().forEach(t=>t.stop());streamRef.current=null;},[]);
@@ -357,6 +423,10 @@ export default function App(){
   const todayMeals=allData[selDate]||[];
   const totals=getDayTotals(todayMeals);
   const streak=calcStreak(allData);
+
+  // ── Adaptive Algorithm ────────────────────────────────────────────────────
+  const adaptive = calcAdaptiveTDEE(allData, weightLog, userGoal);
+  const activeCalGoal = adaptive ? adaptive.recommendedGoal : CAL_GOAL;
 
   function updateMacro(key,val){setForm(f=>{const n={...f,[key]:val};n.calories=calcCalories(n.protein,n.carbs,n.fat);return n;});}
   function openAdd(){setForm(EMPTY_FORM);setEditId(null);setPresetSearch("");setCameraStep("idle");setCapturedImage(null);setAnalysisError("");setShowForm(true);}
@@ -462,6 +532,7 @@ export default function App(){
           </div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <button onClick={()=>setShowGoals(true)} style={{padding:"6px 11px",borderRadius:9,border:`1px solid ${adaptive?C.green:C.border}`,background:adaptive?`${C.green}22`:C.bg2,color:adaptive?C.green:C.textSub,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{adaptive?"🧬":"🎯"}</button>
           <button onClick={()=>setShowLibrary(true)} style={{padding:"6px 11px",borderRadius:9,border:`1px solid ${C.border}`,background:C.bg2,color:C.textSub,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>📚</button>
           <button onClick={()=>setShowReport(true)} style={{padding:"6px 11px",borderRadius:9,border:`1px solid ${C.border}`,background:C.bg2,color:C.textSub,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>📊</button>
           <input type="date" value={selDate} onChange={e=>setSelDate(e.target.value)}
@@ -492,12 +563,52 @@ export default function App(){
           {/* Streak */}
           <StreakCard streak={streak}/>
 
+          {/* Adaptive insight card */}
+          {adaptive ? (
+            <div style={{background:`linear-gradient(135deg,${C.bg1},${C.bg2})`,
+              border:`1px solid ${C.green}44`,borderRadius:16,padding:"12px 16px",
+              marginBottom:14,display:"flex",alignItems:"center",gap:12,
+              boxShadow:`0 0 20px ${C.green}18`}}>
+              <div style={{fontSize:26}}>🧬</div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:11,color:C.green,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:3}}>
+                  Adaptive Algorithm Active
+                </div>
+                <div style={{fontSize:12,color:C.text}}>
+                  Your true TDEE is <span style={{color:C.cyan,fontWeight:700}}>{adaptive.tdee} kcal</span>
+                  {" · "}Goal: <span style={{color:C.accent,fontWeight:700}}>{activeCalGoal} kcal</span>
+                  {" · "}<span style={{color:C.textSub}}>{adaptive.daysAnalysed} days of data</span>
+                </div>
+                <div style={{fontSize:10,color:C.textMuted,marginTop:3}}>
+                  {userGoal==="lose"?"Eating 500 kcal below your TDEE for steady fat loss":
+                   userGoal==="gain"?"Eating 300 kcal above your TDEE for muscle gain":
+                   "Eating at your TDEE to maintain weight"}
+                   {" · "}Confidence: <span style={{color:adaptive.confidence==="high"?C.green:adaptive.confidence==="medium"?C.amber:C.red}}>{adaptive.confidence}</span>
+                </div>
+              </div>
+              <button onClick={()=>setShowGoals(true)} style={{background:C.bg3,border:`1px solid ${C.border}`,borderRadius:8,padding:"5px 10px",color:C.textSub,fontSize:11,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>Edit</button>
+            </div>
+          ) : (
+            <div style={{background:C.bg1,border:`1px solid ${C.amber}33`,borderRadius:16,padding:"11px 14px",
+              marginBottom:14,display:"flex",alignItems:"center",gap:10,cursor:"pointer"}}
+              onClick={()=>setShowGoals(true)}>
+              <div style={{fontSize:20}}>🎯</div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:12,color:C.amber,fontWeight:600}}>Set your goal to activate smart calorie targets</div>
+                <div style={{fontSize:10,color:C.textMuted,marginTop:2}}>
+                  Log 7+ days of meals + 2 weigh-ins → algorithm calculates your real TDEE
+                </div>
+              </div>
+              <div style={{fontSize:14,color:C.textMuted}}>›</div>
+            </div>
+          )}
+
           {/* Calorie ring + macros */}
           <div style={{background:C.bg1,border:`1px solid ${C.border}`,borderRadius:20,
             padding:"20px",marginBottom:14,
             boxShadow:`0 4px 30px rgba(0,0,0,0.4)`}}>
             <div style={{display:"flex",gap:20,alignItems:"center",marginBottom:16}}>
-              <CalRing calories={totals.calories}/>
+              <CalRing calories={totals.calories} goal={activeCalGoal}/>
               <div style={{flex:1}}>
                 <div style={{fontSize:11,color:C.textSub,fontWeight:600,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:12}}>
                   {selDate===today?"Today":"Selected Day"}
@@ -573,7 +684,7 @@ export default function App(){
               const meals=allData[dateKey]||[];
               const t=getDayTotals(meals);
               const isToday=dateKey===today,isSelected=dateKey===selDate,hasMeals=meals.length>0;
-              const pct=Math.min(t.calories/CAL_GOAL,1);
+              const pct=Math.min(t.calories/activeCalGoal,1);
               const ringColor=pct>1?C.red:pct>0.6?C.green:C.accent;
               return(
                 <div key={dateKey} onClick={()=>{setSelDate(dateKey);setActiveTab("log");}}
@@ -989,6 +1100,96 @@ export default function App(){
                 <button onClick={()=>deletePreset(p.id)} style={{background:C.bg3,border:`1px solid ${C.border}`,borderRadius:7,cursor:"pointer",fontSize:11,padding:"4px 8px",color:C.textSub}}>🗑</button>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* ══ GOALS MODAL ══ */}
+      {showGoals&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",backdropFilter:"blur(8px)",
+          zIndex:300,display:"flex",alignItems:"flex-end",justifyContent:"center"}}
+          onClick={e=>{if(e.target===e.currentTarget)setShowGoals(false);}}>
+          <div style={{background:C.bg1,borderRadius:"24px 24px 0 0",padding:"22px 18px 36px",
+            width:"100%",maxWidth:480,boxShadow:"0 -12px 60px rgba(0,0,0,0.8)",
+            maxHeight:"92vh",overflowY:"auto",border:`1px solid ${C.border}`,borderBottom:"none"}}>
+
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
+              <div>
+                <div style={{fontSize:16,fontWeight:700,color:C.text}}>🎯 Your Goal</div>
+                <div style={{fontSize:11,color:C.textSub}}>Drives your adaptive calorie target</div>
+              </div>
+              <button onClick={()=>setShowGoals(false)} style={{background:C.bg2,border:`1px solid ${C.border}`,
+                borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",
+                cursor:"pointer",color:C.textSub,fontSize:14}}>✕</button>
+            </div>
+
+            {/* Goal selector */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:20}}>
+              {[
+                {val:"lose",   icon:"🔥",label:"Lose Weight", desc:"−500 kcal/day", color:"#f87171"},
+                {val:"maintain",icon:"⚖️",label:"Maintain",   desc:"At your TDEE",  color:"#a78bfa"},
+                {val:"gain",   icon:"💪",label:"Build Muscle",desc:"+300 kcal/day", color:"#34d399"},
+              ].map(g=>(
+                <div key={g.val} onClick={()=>setUserGoal(g.val)}
+                  style={{background:userGoal===g.val?`${g.color}22`:C.bg2,
+                    border:`1.5px solid ${userGoal===g.val?g.color:C.border}`,
+                    borderRadius:14,padding:"14px 10px",textAlign:"center",cursor:"pointer",
+                    boxShadow:userGoal===g.val?`0 0 16px ${g.color}33`:"none",
+                    transition:"all 0.2s"}}>
+                  <div style={{fontSize:24,marginBottom:6}}>{g.icon}</div>
+                  <div style={{fontSize:12,fontWeight:700,color:userGoal===g.val?g.color:C.text,marginBottom:3}}>{g.label}</div>
+                  <div style={{fontSize:10,color:C.textSub}}>{g.desc}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Algorithm result */}
+            {adaptive ? (
+              <div style={{background:C.bg2,border:`1px solid ${C.green}44`,borderRadius:14,padding:"16px",marginBottom:16}}>
+                <div style={{fontSize:11,color:C.green,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:12}}>
+                  🧬 Algorithm Result
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+                  {[
+                    {label:"Your Real TDEE",   val:adaptive.tdee,         unit:"kcal", color:C.cyan},
+                    {label:"Recommended Goal", val:adaptive.recommendedGoal,unit:"kcal",color:C.accent},
+                    {label:"Avg Calories Logged",val:adaptive.avgCals,   unit:"kcal", color:C.amber},
+                    {label:"Weight Change",    val:`${adaptive.kgChange>0?"+":""}${adaptive.kgChange}`,unit:"kg",color:adaptive.kgChange<0?C.green:adaptive.kgChange>0?C.red:C.textSub},
+                  ].map(s=>(
+                    <div key={s.label} style={{background:C.bg1,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}`}}>
+                      <div style={{fontSize:18,fontWeight:800,color:s.color}}>{s.val}<span style={{fontSize:11,fontWeight:500}}> {s.unit}</span></div>
+                      <div style={{fontSize:10,color:C.textSub,marginTop:2}}>{s.label}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{fontSize:11,color:C.textSub,lineHeight:1.5}}>
+                  Based on <span style={{color:C.text,fontWeight:600}}>{adaptive.daysAnalysed} days</span> of meal logs
+                  {" "}and your weight data. Confidence:{" "}
+                  <span style={{color:adaptive.confidence==="high"?C.green:adaptive.confidence==="medium"?C.amber:C.red,fontWeight:600}}>
+                    {adaptive.confidence}
+                  </span>
+                  {adaptive.confidence!=="high"&&" — log more days for higher accuracy."}
+                </div>
+              </div>
+            ) : (
+              <div style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,padding:"16px",marginBottom:16}}>
+                <div style={{fontSize:12,fontWeight:700,color:C.amber,marginBottom:8}}>⏳ Not enough data yet</div>
+                <div style={{fontSize:11,color:C.textSub,lineHeight:1.6}}>
+                  The algorithm needs:<br/>
+                  <span style={{color:C.text}}>✓ At least 7 days of meal logs</span><br/>
+                  <span style={{color:C.text}}>✓ At least 2 weight entries</span><br/><br/>
+                  Until then, your calorie goal is set to <span style={{color:C.accent,fontWeight:600}}>{CAL_GOAL} kcal</span>.
+                  Keep logging and it will activate automatically.
+                </div>
+              </div>
+            )}
+
+            <button onClick={()=>setShowGoals(false)} style={{width:"100%",padding:"13px",borderRadius:12,border:"none",
+              background:`linear-gradient(135deg,${C.accent},${C.accentDim})`,
+              color:C.text,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",
+              boxShadow:`0 0 16px ${C.accentGlow}`}}>
+              Got it
+            </button>
           </div>
         </div>
       )}
